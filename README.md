@@ -75,6 +75,43 @@ class Patient extends Model
 
 That's it. Reads and writes transparently encrypt. Null values stay null.
 
+### Structured columns — encrypt JSON leaves while preserving shape
+
+Need to keep a column queryable as a JSON tree (so admin tools, analytics,
+or schema validators can see keys and structure) while protecting the
+inner values? Use the `EncryptedJson` cast.
+
+```php
+use Crumbls\Sealcraft\Casts\Encrypted;
+use Crumbls\Sealcraft\Casts\EncryptedJson;
+use Crumbls\Sealcraft\Concerns\HasEncryptedAttributes;
+
+class Patient extends Model
+{
+    use HasEncryptedAttributes;
+
+    protected $casts = [
+        'ssn'     => Encrypted::class,
+        'history' => EncryptedJson::class,
+    ];
+}
+
+$patient->history = [
+    'conditions' => ['asthma', 'hypertension'],
+    'allergies'  => [
+        ['substance' => 'penicillin', 'severity' => 'severe'],
+    ],
+    'notes'      => 'no recent flares',
+];
+```
+
+On disk, the column stays valid JSON — every leaf string is individually
+encrypted under the same DEK as the row's scalar encrypted columns, while
+keys, nesting, and non-string scalars (ints, floats, bools, nulls) remain
+readable. On read, leaves that carry a cipher prefix are decrypted;
+strings without a prefix pass through unchanged so columns can mix
+plaintext shape data with encrypted leaves.
+
 ### AWS KMS
 
 `.env`:

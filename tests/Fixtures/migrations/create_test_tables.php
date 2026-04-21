@@ -39,5 +39,20 @@ return new class extends Migration
             $table->text('body')->nullable();
             $table->index('owned_user_id');
         });
+
+        Schema::create('encrypted_json_records', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('sealcraft_key', 191)->nullable();
+            $table->text('name')->nullable();
+            $table->longText('history')->nullable();
+            $table->index('sealcraft_key');
+        });
+
+        Schema::create('delegated_json_records', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('owned_user_id');
+            $table->longText('payload')->nullable();
+            $table->index('owned_user_id');
+        });
     }
 };
