@@ -7,6 +7,8 @@ bump until the 1.0 release.
 
 ## [Unreleased]
 
+## [0.1.0]
+
 ### Added
 - `EncryptedJson` cast — encrypts every leaf scalar of a JSON
   structure while preserving keys and nesting, so admin tools and
@@ -36,8 +38,6 @@ bump until the 1.0 release.
   created a new DEK, and failed to decrypt the prior ciphertext with
   `AES-GCM authentication failed`. Regression test in
   `tests/Feature/Casts/EncryptedTest.php`.
-
-## [0.1.0] — initial release (pre-tagged)
 
 ### Package foundation
 - Laravel 11 / 12 / 13 compatibility. PHP 8.2+. Pest 3 test suite,
