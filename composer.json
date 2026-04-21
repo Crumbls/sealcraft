@@ -1,0 +1,72 @@
+{
+    "name": "crumbls/sealcraft",
+    "description": "Production-grade envelope encryption (DEK/KEK) for Laravel. AWS KMS, GCP Cloud KMS, Azure Key Vault, HashiCorp Vault Transit.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel",
+        "encryption",
+        "envelope-encryption",
+        "kms",
+        "hipaa",
+        "compliance",
+        "aws-kms",
+        "azure-key-vault",
+        "gcp-kms",
+        "vault"
+    ],
+    "autoload": {
+        "psr-4": {
+            "Crumbls\\Sealcraft\\": "src/",
+            "Crumbls\\Sealcraft\\Database\\Factories\\": "database/factories/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Crumbls\\Sealcraft\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Crumbls\\Sealcraft\\SealcraftServiceProvider"
+            ]
+        }
+    },
+    "require": {
+        "php": "^8.2",
+        "ext-openssl": "*",
+        "ext-intl": "*",
+        "illuminate/contracts": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/database": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/support": "^11.0 || ^12.0 || ^13.0"
+    },
+    "require-dev": {
+        "aws/aws-sdk-php": "^3.300",
+        "laravel/pint": "^1.27",
+        "mockery/mockery": "^1.6",
+        "orchestra/testbench": "^9.0 || ^10.0 || ^11.0",
+        "pestphp/pest": "^3.0",
+        "phpstan/phpstan": "^2.0",
+        "rector/rector": "^2.3"
+    },
+    "suggest": {
+        "ext-sodium": "Required to use the XChaCha20-Poly1305 cipher driver",
+        "aws/aws-sdk-php": "Required to use the AWS KMS KEK provider",
+        "google/cloud-kms": "Required to use the GCP Cloud KMS KEK provider"
+    },
+    "scripts": {
+        "test": "vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage",
+        "format": "vendor/bin/pint",
+        "analyse": "vendor/bin/phpstan analyse"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "sort-packages": true
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
