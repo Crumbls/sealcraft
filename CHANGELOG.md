@@ -7,6 +7,17 @@ bump until the 1.0 release.
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Fixed
+- **`KeyManager::getActiveDataKey()` no longer queries the database on
+  every encrypted column read/write.** `DekCache` now stores the
+  `DataKey` model alongside the plaintext DEK, sharing one cache and
+  one invalidation path. `getActiveDataKey()` checks the cache first;
+  `getOrCreateDek()`, `createDek()`, and `unwrapInto()` populate both
+  slots on first access. Existing `forget()` and `flush()` clear both
+  stores, so Octane/queue lifecycle is unchanged.
+
 ## [0.1.1]
 
 ### Fixed

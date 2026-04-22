@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Crumbls\Sealcraft\Services;
 
+use Crumbls\Sealcraft\Models\DataKey;
 use Crumbls\Sealcraft\Values\EncryptionContext;
 
 /**
@@ -24,6 +25,9 @@ final class DekCache
     /** @var array<string, string> */
     private array $entries = [];
 
+    /** @var array<string, DataKey> */
+    private array $dataKeys = [];
+
     public function has(EncryptionContext $ctx): bool
     {
         return isset($this->entries[$ctx->toCanonicalHash()]);
@@ -34,9 +38,24 @@ final class DekCache
         return $this->entries[$ctx->toCanonicalHash()] ?? null;
     }
 
-    public function put(EncryptionContext $ctx, string $plaintextDek): void
+    public function getDataKey(EncryptionContext $ctx): ?DataKey
     {
-        $this->entries[$ctx->toCanonicalHash()] = $plaintextDek;
+        return $this->dataKeys[$ctx->toCanonicalHash()] ?? null;
+    }
+
+    public function put(EncryptionContext $ctx, string $plaintextDek, ?DataKey $dataKey = null): void
+    {
+        $hash = $ctx->toCanonicalHash();
+        $this->entries[$hash] = $plaintextDek;
+
+        if ($dataKey !== null) {
+            $this->dataKeys[$hash] = $dataKey;
+        }
+    }
+
+    public function putDataKey(EncryptionContext $ctx, DataKey $dataKey): void
+    {
+        $this->dataKeys[$ctx->toCanonicalHash()] = $dataKey;
     }
 
     public function forget(EncryptionContext $ctx): void
@@ -47,6 +66,8 @@ final class DekCache
             $this->entries[$hash] = str_repeat("\0", strlen($this->entries[$hash]));
             unset($this->entries[$hash]);
         }
+
+        unset($this->dataKeys[$hash]);
     }
 
     public function flush(): void
@@ -56,6 +77,7 @@ final class DekCache
         }
 
         $this->entries = [];
+        $this->dataKeys = [];
     }
 
     public function count(): int

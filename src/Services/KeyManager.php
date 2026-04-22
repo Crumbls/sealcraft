@@ -110,7 +110,7 @@ final class KeyManager
                 'wrapped_dek' => $wrapped->toStorageString(),
             ]);
 
-            $this->cache->put($ctx, $plaintext);
+            $this->cache->put($ctx, $plaintext, $dataKey);
 
             Event::dispatch(new DekCreated($dataKey, $ctx, $providerName));
 
@@ -180,12 +180,20 @@ final class KeyManager
      */
     public function getActiveDataKey(EncryptionContext $ctx, ?string $providerName = null): DataKey
     {
+        $cached = $this->cache->getDataKey($ctx);
+
+        if ($cached !== null) {
+            return $cached;
+        }
+
         $existing = DataKey::query()
             ->forContext($ctx->contextType, $ctx->contextId)
             ->active()
             ->first();
 
         if ($existing instanceof DataKey) {
+            $this->cache->putDataKey($ctx, $existing);
+
             return $existing;
         }
 
@@ -328,6 +336,8 @@ final class KeyManager
     private function unwrapInto(DataKey $dataKey, EncryptionContext $ctx, bool $fireUnwrap = true): string
     {
         if (($plaintext = $this->cache->get($ctx)) !== null) {
+            $this->cache->putDataKey($ctx, $dataKey);
+
             if ($fireUnwrap) {
                 Event::dispatch(new DekUnwrapped($dataKey, $ctx, $dataKey->provider_name, cacheHit: true));
             }
@@ -348,7 +358,7 @@ final class KeyManager
             throw $e;
         }
 
-        $this->cache->put($ctx, $plaintext);
+        $this->cache->put($ctx, $plaintext, $dataKey);
 
         if ($fireUnwrap) {
             Event::dispatch(new DekUnwrapped($dataKey, $ctx, $dataKey->provider_name, cacheHit: false));

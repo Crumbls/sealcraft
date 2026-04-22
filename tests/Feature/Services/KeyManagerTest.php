@@ -12,6 +12,7 @@ use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Services\KeyManager;
 use Crumbls\Sealcraft\Services\ProviderRegistry;
 use Crumbls\Sealcraft\Values\EncryptionContext;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function (): void {
@@ -97,6 +98,23 @@ it('retires a DataKey via retireDek', function (): void {
 
     expect(DataKey::query()->forContext('tenant', 42)->active()->count())->toBe(0);
     expect(DataKey::query()->forContext('tenant', 42)->retired()->count())->toBe(1);
+});
+
+it('caches DataKey so getActiveDataKey does not repeat queries', function (): void {
+    $this->manager->getOrCreateDek($this->ctx);
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $first = $this->manager->getActiveDataKey($this->ctx);
+    $second = $this->manager->getActiveDataKey($this->ctx);
+
+    $dataKeyQueries = collect(DB::getQueryLog())
+        ->filter(fn (array $q): bool => str_contains($q['query'], 'sealcraft_data_keys'))
+        ->count();
+
+    expect($dataKeyQueries)->toBe(0);
+    expect($first->id)->toBe($second->id);
 });
 
 it('honors cache hit on unwrap after initial creation', function (): void {
