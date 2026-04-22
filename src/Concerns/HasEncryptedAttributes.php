@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Crumbls\Sealcraft\Concerns;
 
 use Crumbls\Sealcraft\Casts\Encrypted;
+use Crumbls\Sealcraft\Casts\EncryptedJson;
 use Crumbls\Sealcraft\Events\ContextReencrypted;
 use Crumbls\Sealcraft\Events\ContextReencrypting;
 use Crumbls\Sealcraft\Exceptions\InvalidContextException;
@@ -138,7 +139,7 @@ trait HasEncryptedAttributes
 
             $driver = strtok($cast, ':');
 
-            if ($driver === Encrypted::class) {
+            if ($driver === Encrypted::class || $driver === EncryptedJson::class) {
                 $encrypted[] = $attribute;
             }
         }
@@ -162,6 +163,9 @@ trait HasEncryptedAttributes
         if (! $this->isDirty($column)) {
             return;
         }
+
+        Encrypted::forgetContext($this);
+        EncryptedJson::forgetContext($this);
 
         $originalValue = $this->getOriginal($column);
 

@@ -37,6 +37,16 @@ use Throwable;
  */
 final class Encrypted implements CastsAttributes
 {
+    /** @var \WeakMap<Model, EncryptionContext>|null */
+    private static ?\WeakMap $contextCache = null;
+
+    public static function forgetContext(Model $model): void
+    {
+        if (self::$contextCache !== null) {
+            unset(self::$contextCache[$model]);
+        }
+    }
+
     public function get(Model $model, string $key, mixed $value, array $attributes): ?string
     {
         if ($value === null) {
@@ -146,6 +156,12 @@ final class Encrypted implements CastsAttributes
 
     private function contextFor(Model $model): EncryptionContext
     {
+        self::$contextCache ??= new \WeakMap;
+
+        if (isset(self::$contextCache[$model])) {
+            return self::$contextCache[$model];
+        }
+
         if (! method_exists($model, 'sealcraftContext')) {
             throw new InvalidContextException(
                 get_class($model) . ' must use HasEncryptedAttributes or expose sealcraftContext(): EncryptionContext to use the Encrypted cast.'
@@ -154,6 +170,7 @@ final class Encrypted implements CastsAttributes
 
         /** @var EncryptionContext $ctx */
         $ctx = $model->sealcraftContext();
+        self::$contextCache[$model] = $ctx;
 
         return $ctx;
     }

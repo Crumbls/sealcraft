@@ -7,6 +7,26 @@ bump until the 1.0 release.
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Fixed
+- **Stack overflow during `Model::fill()` with encrypted attributes.**
+  Both `Encrypted` and `EncryptedJson` casts now cache the resolved
+  `EncryptionContext` per model instance via a static `WeakMap`. When a
+  model has N encrypted attributes, `sealcraftContext()` is called once
+  instead of N times, eliminating redundant relationship loads and deep
+  autoload chains that could exhaust `zend.max_allowed_stack_size`.
+  Cache entries are automatically cleaned up on garbage collection.
+  A public `forgetContext(Model)` static method is available on both
+  cast classes for explicit invalidation.
+- `HasEncryptedAttributes::handleSealcraftContextChange()` now clears
+  both cast context caches when the context column is dirty, preventing
+  stale context from surviving a re-encryption pass.
+- `HasEncryptedAttributes::sealcraftEncryptedAttributes()` now detects
+  `EncryptedJson` columns in addition to `Encrypted` columns, so
+  per-group models with JSON-encrypted attributes are included in the
+  auto re-encryption logic during context column changes.
+
 ## [0.1.0]
 
 ### Added
