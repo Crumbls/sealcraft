@@ -110,7 +110,10 @@ final class EncryptedJson implements CastsAttributes
             return [$key => json_encode($tree)];
         }
 
-        $priorAttrs = $model->getAttributes();
+        // $attributes is $model->attributes at call time; use it as the
+        // prior-state snapshot to avoid re-entering getAttributes() (which
+        // would recursively invoke this cast via mergeAttributesFromCachedCasts).
+        $priorAttrs = $attributes;
 
         $context = $this->contextFor($model);
         $manager = app(KeyManager::class);
@@ -124,7 +127,9 @@ final class EncryptedJson implements CastsAttributes
 
         $merged = [$key => json_encode($encryptedTree)];
 
-        foreach ($model->getAttributes() as $attr => $attrValue) {
+        $currentAttrs = self::readRawAttributes($model);
+
+        foreach ($currentAttrs as $attr => $attrValue) {
             if ($attr === $key) {
                 continue;
             }
@@ -289,5 +294,25 @@ final class EncryptedJson implements CastsAttributes
     private function cipherFor(DataKey $dataKey): Cipher
     {
         return app(CipherRegistry::class)->cipher($dataKey->cipher);
+    }
+
+    /**
+     * Read $model->attributes directly, bypassing getAttributes() (which
+     * would trigger mergeAttributesFromCachedCasts and recurse into this
+     * cast's set() for every cached cast column).
+     *
+     * @return array<string, mixed>
+     */
+    private static function readRawAttributes(Model $model): array
+    {
+        static $reader = null;
+
+        $reader ??= \Closure::bind(
+            static fn (Model $m): array => $m->attributes,
+            null,
+            Model::class,
+        );
+
+        return $reader($model);
     }
 }

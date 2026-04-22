@@ -116,16 +116,14 @@ final class Encrypted implements CastsAttributes
             );
         }
 
-        // Capture pre-existing attribute state so we can detect any changes
-        // the context resolver injects during this call (e.g. a generated
-        // sealcraft_key for per-row strategy, which may either be newly
-        // added OR overwrite an existing NULL on an already-persisted row).
-        //
-        // Laravel snapshots $this->attributes before invoking the cast and
-        // then array_replaces the cast's return value back onto it, so
-        // mutations the resolver makes to $model->attributes directly would
-        // otherwise be lost.
-        $priorAttrs = $model->getAttributes();
+        // The $attributes parameter is the snapshot of $model->attributes
+        // at the moment Laravel invoked this cast (see HasAttributes::
+        // setAttribute and ::mergeAttributesFromClassCasts). Use it as
+        // the pre-call state instead of $model->getAttributes(), which
+        // would trigger mergeAttributesFromCachedCasts and recursively
+        // re-enter this cast's set() for any column already in the
+        // class cast cache.
+        $priorAttrs = $attributes;
 
         $context = $this->contextFor($model);
         $manager = app(KeyManager::class);
@@ -136,7 +134,12 @@ final class Encrypted implements CastsAttributes
 
         $merged = [$key => $ciphertext];
 
-        foreach ($model->getAttributes() as $attr => $attrValue) {
+        // Read $model->attributes WITHOUT going through getAttributes(),
+        // to avoid the cache-merge recursion described above. Closure::bind
+        // with Model scope lets us read the protected property directly.
+        $currentAttrs = self::readRawAttributes($model);
+
+        foreach ($currentAttrs as $attr => $attrValue) {
             if ($attr === $key) {
                 continue;
             }
@@ -152,6 +155,26 @@ final class Encrypted implements CastsAttributes
         }
 
         return $merged;
+    }
+
+    /**
+     * Read $model->attributes directly, bypassing getAttributes() (which
+     * would trigger mergeAttributesFromCachedCasts and recurse into this
+     * cast's set() for every cached cast column).
+     *
+     * @return array<string, mixed>
+     */
+    private static function readRawAttributes(Model $model): array
+    {
+        static $reader = null;
+
+        $reader ??= \Closure::bind(
+            static fn (Model $m): array => $m->attributes,
+            null,
+            Model::class,
+        );
+
+        return $reader($model);
     }
 
     private function contextFor(Model $model): EncryptionContext
