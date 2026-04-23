@@ -34,6 +34,11 @@ trait HasEncryptedAttributes
 {
     public static function bootHasEncryptedAttributes(): void
     {
+        static::creating(static function (Model $model): void {
+            /** @var self $model */
+            $model->ensureSealcraftRowKeyMinted();
+        });
+
         static::saving(static function (Model $model): void {
             if (! $model->exists) {
                 return;
@@ -55,6 +60,17 @@ trait HasEncryptedAttributes
             $value = $this->attributes[$column] ?? null;
 
             if ($value === null || $value === '') {
+                if ($this->exists) {
+                    throw new InvalidContextException(sprintf(
+                        '%s#%s has empty row-key column [%s]; refusing to mint a throwaway context. '
+                        . 'Backfill via `php artisan sealcraft:backfill-row-keys "%s"` before reading or writing encrypted attributes.',
+                        static::class,
+                        (string) $this->getKey(),
+                        $column,
+                        static::class,
+                    ));
+                }
+
                 $value = (string) Str::uuid();
                 $this->attributes[$column] = $value;
             }
@@ -78,6 +94,24 @@ trait HasEncryptedAttributes
             contextType: $this->resolveSealcraftContextType(),
             contextId: is_int($value) ? $value : (string) $value,
         );
+    }
+
+    /**
+     * Mint and persist the per-row row-key column on a not-yet-saved model
+     * so the row never reaches the database with an empty key. Skipped for
+     * non-per-row strategies.
+     */
+    protected function ensureSealcraftRowKeyMinted(): void
+    {
+        if ($this->resolveSealcraftStrategy() !== 'per_row') {
+            return;
+        }
+
+        $column = $this->resolveSealcraftRowKeyColumn();
+
+        if (empty($this->attributes[$column])) {
+            $this->attributes[$column] = (string) Str::uuid();
+        }
     }
 
     protected function resolveSealcraftStrategy(): string

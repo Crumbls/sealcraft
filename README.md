@@ -358,10 +358,29 @@ php artisan sealcraft:migrate-provider --from=aws_kms --to=gcp_kms
 | `sealcraft:rotate-dek {model}` | DEK rotation (synchronous re-encryption) |
 | `sealcraft:migrate-provider --from --to` | Move DataKeys between providers |
 | `sealcraft:reencrypt-context {model} {id} {new}` | Per-row context migration |
+| `sealcraft:backfill-row-keys {model}` | Fill empty per-row row-key columns on existing rows |
 | `sealcraft:shred {type} {id}` | Crypto-shred (right to be forgotten) |
 | `sealcraft:audit` | Report DEK counts, distribution, optional round-trip validation |
 
 All destructive commands support `--dry-run`.
+
+### Operational caveats
+
+- **Per-row strategy: empty row-keys are a hard error.** If a saved row has
+  `NULL` or empty in its row-key column (default `sealcraft_key`),
+  `sealcraftContext()` throws `InvalidContextException` instead of minting a
+  throwaway UUID. Silently minting would orphan a fresh DEK on every read
+  and guarantee decryption failure, since the original ciphertext was bound
+  to a different (also throwaway) context.
+- **Backfill before turning encryption on.** When adopting the per-row
+  strategy on an existing table, run
+  `php artisan sealcraft:backfill-row-keys "App\\Models\\Patient"` to
+  populate row-keys on legacy rows. The command is idempotent, supports
+  `--chunk` and `--dry-run`, and bypasses model events so it is safe to
+  run on tables that may already contain ciphertext.
+- **New rows are handled automatically.** A `creating` hook on the trait
+  ensures every newly INSERTed per-row model carries a row-key, even if
+  no encrypted attribute is touched during fill.
 
 ## Configuration reference
 

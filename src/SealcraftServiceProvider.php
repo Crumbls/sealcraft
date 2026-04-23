@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Crumbls\Sealcraft;
 
 use Crumbls\Sealcraft\Commands\AuditCommand;
+use Crumbls\Sealcraft\Commands\BackfillRowKeysCommand;
 use Crumbls\Sealcraft\Commands\GenerateDekCommand;
 use Crumbls\Sealcraft\Commands\MigrateProviderCommand;
 use Crumbls\Sealcraft\Commands\ReencryptContextCommand;
@@ -62,6 +63,7 @@ class SealcraftServiceProvider extends ServiceProvider
 
         $this->commands([
             AuditCommand::class,
+            BackfillRowKeysCommand::class,
             GenerateDekCommand::class,
             MigrateProviderCommand::class,
             ReencryptContextCommand::class,

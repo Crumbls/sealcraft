@@ -5,11 +5,14 @@ declare(strict_types=1);
 use Crumbls\Sealcraft\Events\DecryptionFailed;
 use Crumbls\Sealcraft\Events\DekShredded;
 use Crumbls\Sealcraft\Exceptions\ContextShreddedException;
+use Crumbls\Sealcraft\Exceptions\InvalidContextException;
 use Crumbls\Sealcraft\Models\DataKey;
 use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Services\KeyManager;
 use Crumbls\Sealcraft\Tests\Fixtures\OwnedRecord;
 use Crumbls\Sealcraft\Tests\Fixtures\OwnedUser;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function (): void {
@@ -125,4 +128,92 @@ it('never fires a DecryptionFailed event on a shredded read', function (): void 
     }
 
     Event::assertNotDispatched(DecryptionFailed::class);
+});
+
+it('refuses to read encrypted attributes from a saved row with an empty row-key', function (): void {
+    $user = OwnedUser::query()->create(['email' => 'frank@x', 'ssn' => 'frank-ssn']);
+
+    DB::table('owned_users')->where('id', $user->id)->update(['sealcraft_key' => null]);
+
+    $this->app->make(DekCache::class)->flush();
+
+    $dekCountBefore = DataKey::query()->count();
+
+    expect(fn () => OwnedUser::query()->find($user->id)->ssn)
+        ->toThrow(InvalidContextException::class);
+
+    expect(DataKey::query()->count())->toBe($dekCountBefore);
+});
+
+it('refuses to write encrypted attributes onto a saved row with an empty row-key', function (): void {
+    $user = OwnedUser::query()->create(['email' => 'gina@x', 'ssn' => 'gina-ssn']);
+
+    DB::table('owned_users')->where('id', $user->id)->update(['sealcraft_key' => null]);
+
+    $this->app->make(DekCache::class)->flush();
+
+    $reloaded = OwnedUser::query()->find($user->id);
+
+    expect(fn () => $reloaded->ssn = 'updated')
+        ->toThrow(InvalidContextException::class);
+});
+
+it('surfaces the same throw on a delegated read when the owner has no row-key', function (): void {
+    $user = OwnedUser::query()->create(['email' => 'hank@x', 'ssn' => 'hank-ssn']);
+    $record = OwnedRecord::query()->create(['owned_user_id' => $user->id, 'body' => 'note']);
+
+    DB::table('owned_users')->where('id', $user->id)->update(['sealcraft_key' => null]);
+
+    $this->app->make(DekCache::class)->flush();
+
+    expect(fn () => OwnedRecord::query()->find($record->id)->body)
+        ->toThrow(InvalidContextException::class);
+});
+
+it('persists the row-key on create even when no encrypted attribute is touched', function (): void {
+    $user = OwnedUser::query()->create(['email' => 'ivy@x']);
+
+    $persisted = DB::table('owned_users')->where('id', $user->id)->value('sealcraft_key');
+
+    expect($persisted)->toBeString()->not->toBe('');
+
+    // Subsequent encrypted writes must not throw and must reuse the same row-key.
+    $user->ssn = 'ivy-ssn';
+    $user->save();
+
+    expect(OwnedUser::query()->find($user->id)->ssn)->toBe('ivy-ssn');
+
+    expect(DB::table('owned_users')->where('id', $user->id)->value('sealcraft_key'))
+        ->toBe($persisted);
+});
+
+it('backfills empty row-keys with the sealcraft:backfill-row-keys command', function (): void {
+    $idA = DB::table('owned_users')->insertGetId(['email' => 'jay@x', 'sealcraft_key' => null]);
+    $idB = DB::table('owned_users')->insertGetId(['email' => 'kim@x', 'sealcraft_key' => '']);
+
+    Artisan::call('sealcraft:backfill-row-keys', ['model' => OwnedUser::class]);
+
+    $keyA = DB::table('owned_users')->where('id', $idA)->value('sealcraft_key');
+    $keyB = DB::table('owned_users')->where('id', $idB)->value('sealcraft_key');
+
+    expect($keyA)->toBeString()->not->toBe('');
+    expect($keyB)->toBeString()->not->toBe('');
+    expect($keyA)->not->toBe($keyB);
+
+    // Idempotent: a second run touches no rows and leaves keys intact.
+    Artisan::call('sealcraft:backfill-row-keys', ['model' => OwnedUser::class]);
+
+    expect(DB::table('owned_users')->where('id', $idA)->value('sealcraft_key'))->toBe($keyA);
+    expect(DB::table('owned_users')->where('id', $idB)->value('sealcraft_key'))->toBe($keyB);
+});
+
+it('leaves row-keys untouched in --dry-run mode', function (): void {
+    $id = DB::table('owned_users')->insertGetId(['email' => 'lyn@x', 'sealcraft_key' => null]);
+
+    Artisan::call('sealcraft:backfill-row-keys', [
+        'model' => OwnedUser::class,
+        '--dry-run' => true,
+    ]);
+
+    expect(DB::table('owned_users')->where('id', $id)->value('sealcraft_key'))->toBeNull();
 });

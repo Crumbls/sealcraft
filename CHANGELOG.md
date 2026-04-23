@@ -7,6 +7,34 @@ bump until the 1.0 release.
 
 ## [Unreleased]
 
+## [0.1.3]
+
+### Fixed
+- **`HasEncryptedAttributes::sealcraftContext()` no longer silently mints a
+  throwaway row-key UUID on an already-persisted row.** Previously, when a
+  per-row model was loaded with an empty `sealcraft_key` (or the configured
+  row-key column), every read minted a fresh UUID into in-memory attributes
+  and returned it as the encryption context. The UUID was never persisted,
+  so each subsequent read produced another UUID, and `KeyManager::getOrCreateDek()`
+  inserted a fresh `sealcraft_data_keys` row every time. The original
+  ciphertext was bound to a different (also discarded) context, so
+  decryption always failed — while the orphan-DEK table grew unbounded.
+  `sealcraftContext()` now throws `InvalidContextException` when the row
+  exists and the row-key column is empty, pointing the operator at the new
+  backfill command. Lazy mint behavior is preserved on unsaved models so
+  the existing fill-then-save flow still works.
+
+### Added
+- **`creating` event hook** on `HasEncryptedAttributes` mints the per-row
+  row-key before INSERT, so newly-created rows always carry a row-key
+  even when no encrypted attribute is touched during fill (covers the
+  `Model::create([...])` → encrypt-later pattern).
+- **`sealcraft:backfill-row-keys {model} [--chunk=500] [--dry-run]`**
+  command — backfills the per-row row-key column with fresh UUIDs on
+  rows where it is `NULL` or empty. Bypasses model events and casts so
+  it is safe to run on tables that already contain ciphertext under a
+  legacy/missing context. Idempotent.
+
 ## [0.1.2]
 
 ### Fixed

@@ -9,6 +9,7 @@ use Crumbls\Sealcraft\Models\DataKey;
 use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Tests\Fixtures\EncryptedDocument;
 use Crumbls\Sealcraft\Tests\Fixtures\EncryptedVaultEntry;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
@@ -81,10 +82,11 @@ it('materializes at most one DataKey per tenant for per-group models', function 
     expect(DataKey::query()->forContext('tenant', 42)->active()->count())->toBe(1);
 });
 
-it('persists a generated sealcraft_key onto an already-saved per-row row (regression)', function (): void {
-    // Simulate the "pre-existing row gets sealcraft column added later" flow:
-    // row exists in the DB, sealcraft_key is NULL, user writes an encrypted
-    // attribute for the first time.
+it('refuses encrypted writes on a pre-existing row with empty sealcraft_key, then accepts them after backfill', function (): void {
+    // Simulate the "pre-existing row gets sealcraft column added later"
+    // flow: row exists in the DB with sealcraft_key NULL. The trait must
+    // refuse to mint a throwaway context (which would orphan a DEK and
+    // guarantee future decryption failure) until the operator backfills.
     DB::table('encrypted_vault_entries')->insert([
         'id' => 1000,
         'sealcraft_key' => null,
@@ -94,16 +96,27 @@ it('persists a generated sealcraft_key onto an already-saved per-row row (regres
     $entry = EncryptedVaultEntry::query()->find(1000);
     expect($entry->sealcraft_key)->toBeNull();
 
-    $entry->payload = 'something sensitive';
-    $entry->save();
+    expect(fn () => $entry->payload = 'something sensitive')
+        ->toThrow(InvalidContextException::class);
 
-    // The generated sealcraft_key must have been persisted so subsequent
-    // reads land on the same DEK.
+    // No DEK should have been minted by the failed write.
+    expect(DataKey::query()->count())->toBe(0);
+
+    // Operator runs the backfill command; the row now has a stable
+    // sealcraft_key, so writes and round-trips succeed.
+    Artisan::call('sealcraft:backfill-row-keys', ['model' => EncryptedVaultEntry::class]);
+
+    $backfilledKey = DB::table('encrypted_vault_entries')->where('id', 1000)->value('sealcraft_key');
+    expect($backfilledKey)->toBeString()->not->toBe('');
+
+    $reloaded = EncryptedVaultEntry::query()->find(1000);
+    $reloaded->payload = 'something sensitive';
+    $reloaded->save();
+
     $raw = DB::table('encrypted_vault_entries')->where('id', 1000)->first();
-    expect($raw->sealcraft_key)->not->toBeNull();
+    expect($raw->sealcraft_key)->toBe($backfilledKey);
     expect($raw->payload)->toStartWith('ag1:v1:');
 
-    // Cold round-trip with a fresh fetch and flushed DEK cache.
     $this->app->make(DekCache::class)->flush();
     $fresh = EncryptedVaultEntry::query()->find(1000);
     expect($fresh->payload)->toBe('something sensitive');

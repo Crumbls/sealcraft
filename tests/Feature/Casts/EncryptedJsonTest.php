@@ -6,6 +6,7 @@ use Crumbls\Sealcraft\Casts\EncryptedJson;
 use Crumbls\Sealcraft\Events\DecryptionFailed;
 use Crumbls\Sealcraft\Exceptions\ContextShreddedException;
 use Crumbls\Sealcraft\Exceptions\DecryptionFailedException;
+use Crumbls\Sealcraft\Exceptions\InvalidContextException;
 use Crumbls\Sealcraft\Exceptions\SealcraftException;
 use Crumbls\Sealcraft\Models\DataKey;
 use Crumbls\Sealcraft\Services\CipherRegistry;
@@ -14,6 +15,7 @@ use Crumbls\Sealcraft\Services\KeyManager;
 use Crumbls\Sealcraft\Tests\Fixtures\DelegatedJsonRecord;
 use Crumbls\Sealcraft\Tests\Fixtures\EncryptedJsonRecord;
 use Crumbls\Sealcraft\Tests\Fixtures\OwnedUser;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
@@ -223,7 +225,7 @@ it('passes plaintext leaves without a cipher prefix straight through on read', f
     expect($fresh->history['plain-leaf'])->toBe('this is plaintext');
 });
 
-it('auto-populates sealcraft_key on a pre-existing row without a key (regression)', function (): void {
+it('refuses encrypted JSON writes on a pre-existing row with empty sealcraft_key, then accepts them after backfill', function (): void {
     DB::table('encrypted_json_records')->insert([
         'id' => 9001,
         'sealcraft_key' => null,
@@ -234,11 +236,20 @@ it('auto-populates sealcraft_key on a pre-existing row without a key (regression
     $record = EncryptedJsonRecord::query()->find(9001);
     expect($record->sealcraft_key)->toBeNull();
 
-    $record->history = ['note' => 'first entry'];
-    $record->save();
+    expect(fn () => $record->history = ['note' => 'first entry'])
+        ->toThrow(InvalidContextException::class);
+
+    Artisan::call('sealcraft:backfill-row-keys', ['model' => EncryptedJsonRecord::class]);
+
+    $backfilledKey = DB::table('encrypted_json_records')->where('id', 9001)->value('sealcraft_key');
+    expect($backfilledKey)->toBeString()->not->toBe('');
+
+    $reloaded = EncryptedJsonRecord::query()->find(9001);
+    $reloaded->history = ['note' => 'first entry'];
+    $reloaded->save();
 
     $raw = DB::table('encrypted_json_records')->where('id', 9001)->first();
-    expect($raw->sealcraft_key)->not->toBeNull();
+    expect($raw->sealcraft_key)->toBe($backfilledKey);
     expect($raw->history)->not->toBeNull();
 
     $this->app->make(DekCache::class)->flush();
