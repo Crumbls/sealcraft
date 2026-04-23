@@ -7,6 +7,52 @@ bump until the 1.0 release.
 
 ## [Unreleased]
 
+## [0.1.4]
+
+### Fixed
+- **`CipherRegistry::peekId()` no longer returns false positives for
+  non-ciphertext values whose first 8 characters contain a colon.**
+  Previously, any `<word>:<anything>` payload — data URIs
+  (`data:image/png;base64,...`), URLs (`http://...`, `mailto:...`),
+  JSON-wrapped strings (`"{"foo":"bar"}"`) — was reported as ciphertext
+  and the prefix returned as a "cipher ID." The method now validates
+  the full sealcraft envelope shape (`<id>:v<n>:<b64>:<b64>[:<b64>...]`)
+  AND that the prefix matches a registered cipher driver. This unblocks
+  legacy-plaintext-backfill commands that used `peekId !== null` as the
+  "already encrypted, skip" gate — they will now correctly identify
+  colon-prefixed plaintext as plaintext and re-encrypt it. It also
+  replaces the opaque `cipherById('data')` failure deep in the
+  `Encrypted` cast with the clearer "no recognizable cipher ID prefix"
+  `DecryptionFailedException` from the cast itself.
+
+### Changed
+- **`CipherRegistry::peekId()` is now an instance method.** The new
+  validation requires access to the registry's cipher index, which is
+  not available statically. Internal callers (`Casts\Encrypted`,
+  `Casts\EncryptedJson`) have been updated to use the instance method
+  via the registry they already resolve from the container. Consumers
+  who call the method statically must either resolve the registry
+  (`app(CipherRegistry::class)->peekId(...)`) or switch to the
+  deprecated `peekIdUnsafe()` shim documented below.
+
+### Deprecated
+- **`CipherRegistry::peekIdUnsafe()`** (static) preserves the legacy
+  prefix-only behavior for one release as a transitional escape hatch.
+  Scheduled for removal in 0.2.0. Do not introduce new call sites; this
+  method has the same false-positive bug that the new `peekId()` fixes.
+
+### Migration notes
+- No database or ciphertext format changes. Existing ciphertext is
+  unchanged and remains readable.
+- If you extend `Encrypted` or `EncryptedJson` and override `get()` /
+  any tree-walking helper, replace `CipherRegistry::peekId($value)`
+  with `$ciphers->peekId($value)` where `$ciphers` is your resolved
+  `CipherRegistry` instance.
+- Consumers running legacy-plaintext detection should re-run their
+  reencrypt command after upgrading; rows that were silently skipped
+  on v0.1.3 (because their plaintext happened to contain a `:` in the
+  first 8 chars) will now be detected and re-encrypted.
+
 ## [0.1.3]
 
 ### Fixed

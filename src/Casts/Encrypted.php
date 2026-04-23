@@ -76,7 +76,7 @@ final class Encrypted implements CastsAttributes
             throw $e;
         }
 
-        $cipherId = CipherRegistry::peekId($value);
+        $cipherId = $ciphers->peekId($value);
 
         if ($cipherId === null) {
             $ex = new DecryptionFailedException(

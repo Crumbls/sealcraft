@@ -82,6 +82,40 @@ it('materializes at most one DataKey per tenant for per-group models', function 
     expect(DataKey::query()->forContext('tenant', 42)->active()->count())->toBe(1);
 });
 
+it('treats raw plaintext with a colon prefix as not-ciphertext rather than a broken cipher id', function (): void {
+    // Regression for the v0.1.4 peekId fix: previously, a raw plaintext value
+    // like a data URI in the column was misdetected as ciphertext (peekId
+    // returned 'data'), so the cast tried `cipherById('data')` and threw a
+    // confusing SealcraftException. The cast must now report "no recognizable
+    // cipher ID prefix" (DecryptionFailedException), which is the signal
+    // legacy-plaintext-backfill commands rely on to identify rows that need
+    // re-encryption.
+    DB::table('encrypted_documents')->insert([
+        'id' => 7777,
+        'tenant_id' => 42,
+        'secret' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA',
+        'note' => null,
+    ]);
+
+    expect(fn () => EncryptedDocument::query()->find(7777)->secret)
+        ->toThrow(DecryptionFailedException::class, 'no recognizable cipher ID prefix');
+});
+
+it('reports null from peekId for legacy plaintext so reencrypt commands can detect it', function (): void {
+    DB::table('encrypted_documents')->insert([
+        'id' => 7778,
+        'tenant_id' => 42,
+        'secret' => 'https://example.com/legacy-url-stored-as-plaintext',
+        'note' => 'mailto:patient@example.com',
+    ]);
+
+    $registry = $this->app->make(\Crumbls\Sealcraft\Services\CipherRegistry::class);
+    $raw = DB::table('encrypted_documents')->where('id', 7778)->first();
+
+    expect($registry->peekId($raw->secret))->toBeNull();
+    expect($registry->peekId($raw->note))->toBeNull();
+});
+
 it('refuses encrypted writes on a pre-existing row with empty sealcraft_key, then accepts them after backfill', function (): void {
     // Simulate the "pre-existing row gets sealcraft column added later"
     // flow: row exists in the DB with sealcraft_key NULL. The trait must

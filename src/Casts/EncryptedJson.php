@@ -238,7 +238,7 @@ final class EncryptedJson implements CastsAttributes
                 continue;
             }
 
-            $cipherId = CipherRegistry::peekId($v);
+            $cipherId = $ciphers->peekId($v);
 
             if ($cipherId === null) {
                 // No ciphertext prefix — treat as plaintext (or

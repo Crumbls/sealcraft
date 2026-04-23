@@ -92,11 +92,45 @@ final class CipherRegistry
     }
 
     /**
-     * Extract the 3-char cipher ID from a ciphertext string without
-     * decrypting. Returns null if the string doesn't begin with a
-     * cipher-id-like prefix.
+     * Extract a registered cipher ID from a sealcraft ciphertext envelope.
+     *
+     * Returns null if the value does not match the sealcraft envelope shape
+     * (`<id>:v<n>:<b64>:<b64>[:<b64>...]`) OR the prefix is not a registered
+     * cipher. A "looks like ciphertext" check based purely on the presence
+     * of a colon prefix is insufficient: data URIs, JSON-wrapped strings,
+     * URLs, and other `<word>:` payloads all have short colon prefixes that
+     * the previous implementation falsely reported as cipher IDs.
      */
-    public static function peekId(string $ciphertext): ?string
+    public function peekId(string $ciphertext): ?string
+    {
+        if (! preg_match(
+            '/^([a-z0-9-]{1,8}):v\d+(?::[A-Za-z0-9+\/]+=*){2,}$/',
+            $ciphertext,
+            $matches
+        )) {
+            return null;
+        }
+
+        $id = $matches[1];
+
+        if (! isset($this->idIndex[$id])) {
+            $this->hydrateIdIndex();
+        }
+
+        return isset($this->idIndex[$id]) ? $id : null;
+    }
+
+    /**
+     * Legacy prefix-only peek that returns whatever appears before the first
+     * colon in the first 8 characters, with no validation against registered
+     * ciphers and no envelope-shape check. Returns false positives for any
+     * `<word>:<anything>` input — the source of v0.1.3 bugs where data URIs
+     * and JSON-wrapped strings were mis-detected as ciphertext.
+     *
+     * @deprecated 0.1.4 Use the instance method `peekId()` on a resolved
+     *             CipherRegistry instead. Scheduled for removal in 0.2.0.
+     */
+    public static function peekIdUnsafe(string $ciphertext): ?string
     {
         $colon = strpos($ciphertext, ':');
 

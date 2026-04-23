@@ -52,8 +52,9 @@ it('round-trips a nested structure with every leaf scalar encrypted in place', f
     expect($rawDecoded['allergies'][0]['substance'])->not->toBe('penicillin');
     expect($rawDecoded['allergies'][0]['severity'])->not->toBe('severe');
     expect($rawDecoded['notes'])->not->toBe('no recent flares');
+    $registry = $this->app->make(CipherRegistry::class);
     foreach ($rawDecoded['conditions'] as $leaf) {
-        expect(CipherRegistry::peekId($leaf))->not->toBeNull();
+        expect($registry->peekId($leaf))->not->toBeNull();
     }
 
     $this->app->make(DekCache::class)->flush();
@@ -92,7 +93,7 @@ it('preserves structure — keys, nested arrays, and non-string scalars are unto
 
     expect($raw['tags'])->toHaveCount(2);
     expect($raw['tags'][0])->not->toBe('critical');
-    expect(CipherRegistry::peekId($raw['tags'][0]))->not->toBeNull();
+    expect($this->app->make(CipherRegistry::class)->peekId($raw['tags'][0]))->not->toBeNull();
     expect($raw['pii'])->not->toBe('sensitive string');
 
     $this->app->make(DekCache::class)->flush();
