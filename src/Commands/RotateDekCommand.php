@@ -35,13 +35,13 @@ final class RotateDekCommand extends Command
     use ResolvesEncryptionContext;
 
     protected $signature = 'sealcraft:rotate-dek
-        {model : Fully-qualified model class using HasEncryptedAttributes}
-        {--context-type= : Required: context type to rotate}
-        {--context-id= : Required: context id to rotate}
+        {model : Fully-qualified model class using HasEncryptedAttributes (e.g. "App\\Models\\Patient")}
+        {context_type : Context type (e.g. "tenant", "patient", or a model FQN)}
+        {context_id : Context identifier}
         {--chunk=500 : Re-encrypt rows in chunks of this size}
         {--dry-run : Report the affected row count without re-encrypting}';
 
-    protected $description = 'Synchronously re-encrypt a model\'s rows under a fresh DEK for a context, then retire the old DEK.';
+    protected $description = 'Synchronously re-encrypt a model\'s rows under a fresh DEK for a context, then retire the old DEK. Example: php artisan sealcraft:rotate-dek "App\\Models\\Patient" patient 42';
 
     public function handle(
         KeyManager $manager,
@@ -63,16 +63,10 @@ final class RotateDekCommand extends Command
             return self::FAILURE;
         }
 
-        $type = $this->option('context-type');
-        $id = $this->option('context-id');
-
-        if (! is_string($type) || ! is_string($id) || $type === '' || $id === '') {
-            $this->error('Both --context-type and --context-id are required.');
-
-            return self::FAILURE;
-        }
-
-        $ctx = $this->buildContext($type, $id);
+        $ctx = $this->buildContext(
+            (string) $this->argument('context_type'),
+            (string) $this->argument('context_id'),
+        );
         $cache->flush();
 
         $oldDataKey = DataKey::query()

@@ -128,8 +128,8 @@ it('rotate-dek re-encrypts model rows under a fresh DEK', function (): void {
 
     $code = Artisan::call('sealcraft:rotate-dek', [
         'model' => OwnedUser::class,
-        '--context-type' => $morph,
-        '--context-id' => $user->sealcraft_key,
+        'context_type' => $morph,
+        'context_id' => $user->sealcraft_key,
     ]);
 
     expect($code)->toBe(0);

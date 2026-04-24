@@ -16,7 +16,7 @@ class OwnedUser extends Model
 {
     use HasEncryptedAttributes;
 
-    protected string $sealcraftStrategy = 'per_row';
+    protected array $sealcraft = ['strategy' => 'per_row'];
 
     protected $casts = ['ssn' => Encrypted::class, 'dob' => Encrypted::class];
 }
@@ -40,6 +40,8 @@ class OwnedRecord extends Model
 ```
 
 The `OwnedUser` is the root -- its per-row DEK encrypts its own columns. `OwnedRecord` overrides `sealcraftContext()` to return the owner's context. Every related row encrypts under the same DEK.
+
+The `sealcraftContext()` method override takes precedence over the `$sealcraft` array, so delegated models don't need (and shouldn't set) their own `$sealcraft` config — the method is the whole story.
 
 ## Right-to-be-forgotten in one shred
 

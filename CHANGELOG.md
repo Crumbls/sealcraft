@@ -7,6 +7,119 @@ bump until the 1.0 release.
 
 ## [Unreleased]
 
+### Fixed
+- **`Model::replicate()` on per-row models no longer shares a DEK with the
+  original.** Previously, `replicate()` copied the `sealcraft_key`
+  column, which meant the clone shared the original's DEK — shredding
+  one would also destroy the other's data. The trait now hooks the
+  `replicating` event, decrypts the original's encrypted attributes on
+  the replica, nulls the row-key so `creating` mints a fresh UUID, and
+  lets the cast re-encrypt under the new DEK on save.
+- **Cloud KEK provider error classification is now wired up.** The
+  Vault / GCP / Azure providers now call `->throw()` on their HTTP
+  chains, so `RequestException` actually propagates and the provider's
+  `isAuthError()` branch can classify 400s as `DecryptionFailedException`
+  (context mismatch / AAD mismatch) while 403/5xx become
+  `KekUnavailableException`. Previously the auth-error branch was
+  unreachable — every non-2xx response fell through to "response
+  missing plaintext" via body parsing.
+- **`HasEncryptedAttributes` resolvers no longer return `""` when
+  config is explicitly `null` or `""`.** The `(string) config(...)` cast
+  yielded an empty string (bypassing the intended default), which
+  surfaced as `'' !== 'per_group'` logic bugs in downstream code. All
+  three resolvers (`resolveSealcraftStrategy`,
+  `resolveSealcraftContextType`, `resolveSealcraftContextColumn`) now
+  fall through empty strings to the intended default.
+- **`sealcraft:install --force` now forwards `--force` to `migrate`**
+  so production-install workflows can bypass the migration confirmation
+  prompt without a separate step.
+
+### Added
+- **Unified `$sealcraft` array for model context configuration.** Replaces
+  the four separate `$sealcraftStrategy`, `$sealcraftContextType`,
+  `$sealcraftContextColumn`, and `$sealcraftRowKeyColumn` properties with
+  one array that reads like `$casts` or `$fillable`:
+  ```php
+  protected array $sealcraft = [
+      'strategy' => 'per_row',     // 'per_group' (default) | 'per_row'
+      'type'     => 'patient',     // context type
+      'column'   => 'patient_id',  // per_group: id column; per_row: row-key column
+  ];
+  ```
+  The legacy individual properties still work — no migration required.
+- **Per-column context override via cast parameters.** `Encrypted` and
+  `EncryptedJson` now accept `type=X,column=Y` pairs in the cast string
+  to route one attribute to a different encryption context than the
+  rest of the model:
+  ```php
+  protected $casts = [
+      'ssn'        => Encrypted::class,
+      'work_notes' => Encrypted::class . ':type=employer,column=employer_id',
+  ];
+  ```
+  Only `type=` and `column=` together are supported; passing one without
+  the other raises `SealcraftException` at construction time.
+- **`sealcraft:doctor`** end-to-end diagnostic that combines config
+  validation, a provider+cipher round-trip, and the model inventory
+  scan in one command. Exits non-zero if any check fails — suitable
+  for deploy-gate CI. Supports `--skip-roundtrip` and `--skip-models`
+  for environments that can't run every step.
+- **`sealcraft:models`** scans the app for models using
+  `HasEncryptedAttributes` and prints a table with strategy, context,
+  encrypted columns, and active DEK count per model. Supports
+  `--path=<dir>` to scope and `--json` for machine-readable output.
+- **`sealcraft:install` is now idempotent at the filesystem layer.**
+  Detects existing `config/sealcraft.php` and existing
+  `*_create_sealcraft_data_keys_table.php` migration files and skips
+  re-publishing to prevent duplicate timestamped migration files.
+  `--force` overrides the skip.
+- **Bounded DEK cache with LRU eviction.** `DekCache` now caps at
+  `sealcraft.dek_cache.max_entries` (default `1024`) and evicts the
+  least-recently-used entry when full. Prevents unbounded plaintext-DEK
+  retention in long-running workers (Horizon / Octane) that touch many
+  tenants over time. Set `SEALCRAFT_DEK_CACHE_MAX_ENTRIES=0` to disable
+  the cap.
+- **`sealcraft:install`** one-shot onboarding command. Publishes config,
+  publishes the migration, and runs `migrate` — idempotent and safe to
+  re-run. Replaces the three-step `vendor:publish` / `migrate` dance.
+- **`sealcraft:verify`** end-to-end smoke test. Round-trips a synthetic
+  DEK through the configured provider and cipher, then shreds the
+  context. Exits non-zero with an actionable message on failure.
+- **Fail-fast config validation at boot**. A new `ConfigValidator`
+  service validates the entire `sealcraft.*` block during
+  `SealcraftServiceProvider::boot()` when
+  `sealcraft.validate_on_boot=true` (the default). Missing env vars,
+  typo'd provider names, and out-of-range values now fail at deploy
+  time with messages that name the exact env var to set. Disable per
+  app with `SEALCRAFT_VALIDATE_ON_BOOT=false` when testing bad config.
+- **`.env.example`** ships in the package root with every env var the
+  config honors, grouped by provider.
+- **Upgraded error messages** across `ProviderRegistry`, `CipherRegistry`,
+  and the `Encrypted` cast. Unknown-provider errors now list the valid
+  provider names; unknown-cipher errors list the valid cipher names;
+  the cast's "no recognizable cipher ID prefix" message now points at
+  the legacy-plaintext migration path from the README.
+
+### Changed
+- **BREAKING:** `sealcraft:rotate-dek` context arguments are now
+  positional instead of options, matching `sealcraft:generate-dek` and
+  `sealcraft:shred`.
+  - Before: `sealcraft:rotate-dek "App\\Models\\Patient" --context-type=patient --context-id=42`
+  - After:  `sealcraft:rotate-dek "App\\Models\\Patient" patient 42`
+  - For `Artisan::call` callers, rename keys `--context-type` /
+    `--context-id` to `context_type` / `context_id`.
+- **BREAKING:** `sealcraft.providers.azure_kv` renamed to
+  `sealcraft.providers.azure_key_vault`. The config key now matches the
+  driver name for consistency with `aws_kms`, `gcp_kms`, and
+  `vault_transit`.
+  - **Env**: change `SEALCRAFT_PROVIDER=azure_kv` to
+    `SEALCRAFT_PROVIDER=azure_key_vault`.
+  - **Code**: change any
+    `config(['sealcraft.providers.azure_kv.*' => ...])` bindings to
+    `config(['sealcraft.providers.azure_key_vault.*' => ...])`.
+  - One-liner migration:
+    `sed -i '' 's/azure_kv/azure_key_vault/g' .env config/sealcraft.php app/Providers/*.php`
+
 ## [0.1.4]
 
 ### Fixed

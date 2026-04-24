@@ -54,5 +54,16 @@ return new class extends Migration
             $table->longText('payload')->nullable();
             $table->index('owned_user_id');
         });
+
+        Schema::create('unified_patients', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('patient_id')->nullable();
+            $table->unsignedBigInteger('employer_id')->nullable();
+            $table->text('ssn')->nullable();
+            $table->longText('history')->nullable();
+            $table->text('work_notes')->nullable();
+            $table->index('patient_id');
+            $table->index('employer_id');
+        });
     }
 };

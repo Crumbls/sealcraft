@@ -100,6 +100,7 @@ final class AzureKeyVaultKekProvider implements KekProvider, SupportsKeyVersioni
             ->withToken(($this->tokenResolver)())
             ->acceptJson()
             ->asJson()
+            ->throw()
             ->post($this->keyOperationUrl('wrapkey'), [
                 'alg' => self::ALGORITHM,
                 'value' => $this->base64UrlEncode($payload),
@@ -133,6 +134,7 @@ final class AzureKeyVaultKekProvider implements KekProvider, SupportsKeyVersioni
                 ->withToken(($this->tokenResolver)())
                 ->acceptJson()
                 ->asJson()
+                ->throw()
                 ->post($this->keyOperationUrl('unwrapkey'), [
                     'alg' => self::ALGORITHM,
                     'value' => $this->base64UrlEncode($wrapped->ciphertext),
@@ -166,6 +168,7 @@ final class AzureKeyVaultKekProvider implements KekProvider, SupportsKeyVersioni
         $response = $this->retrying(fn () => $this->http
             ->withToken(($this->tokenResolver)())
             ->acceptJson()
+            ->throw()
             ->get($url));
 
         $body = $response->json();

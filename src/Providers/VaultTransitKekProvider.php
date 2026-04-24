@@ -72,6 +72,7 @@ final class VaultTransitKekProvider implements KekProvider, SupportsKeyVersionin
             ->withHeaders(['X-Vault-Token' => ($this->tokenResolver)()])
             ->acceptJson()
             ->asJson()
+            ->throw()
             ->post($this->endpoint('encrypt'), [
                 'plaintext' => base64_encode($plaintextDek),
                 'context' => $ctx->toVaultTransitContext(),
@@ -102,6 +103,7 @@ final class VaultTransitKekProvider implements KekProvider, SupportsKeyVersionin
                 ->withHeaders(['X-Vault-Token' => ($this->tokenResolver)()])
                 ->acceptJson()
                 ->asJson()
+                ->throw()
                 ->post($this->endpoint('decrypt'), [
                     'ciphertext' => $wrapped->ciphertext,
                     'context' => $ctx->toVaultTransitContext(),
@@ -137,6 +139,7 @@ final class VaultTransitKekProvider implements KekProvider, SupportsKeyVersionin
         $response = $this->retrying(fn () => $this->http
             ->withHeaders(['X-Vault-Token' => ($this->tokenResolver)()])
             ->acceptJson()
+            ->throw()
             ->get(rtrim($this->address, '/') . '/v1/' . trim($this->mount, '/') . '/keys/' . $this->keyName));
 
         $body = $response->json();

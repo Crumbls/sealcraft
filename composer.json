@@ -3,6 +3,12 @@
     "description": "Production-grade envelope encryption (DEK/KEK) for Laravel. AWS KMS, GCP Cloud KMS, Azure Key Vault, HashiCorp Vault Transit.",
     "type": "library",
     "license": "MIT",
+    "homepage": "https://www.crumbls.com/documentation/sealcraft",
+    "support": {
+        "docs": "https://www.crumbls.com/documentation/sealcraft",
+        "issues": "https://github.com/Crumbls/sealcraft/issues",
+        "source": "https://github.com/Crumbls/sealcraft"
+    },
     "keywords": [
         "laravel",
         "encryption",

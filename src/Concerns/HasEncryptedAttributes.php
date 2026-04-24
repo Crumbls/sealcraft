@@ -21,14 +21,24 @@ use Illuminate\Support\Str;
  * context derivation and hooks the saving event to handle context
  * changes according to the configured policy.
  *
- * Models may customize behavior via these optional properties:
+ * RECOMMENDED: customize with a single `$sealcraft` array property:
  *
- *   protected string $sealcraftStrategy        = 'per_row';
- *   protected string $sealcraftContextType     = 'patient';
- *   protected string $sealcraftContextColumn   = 'patient_id';
- *   protected string $sealcraftRowKeyColumn    = 'row_key';
+ *     protected array $sealcraft = [
+ *         'strategy' => 'per_row',        // 'per_group' (default) | 'per_row'
+ *         'type'     => 'patient',        // context type name
+ *         'column'   => 'patient_id',     // per_group: context id column;
+ *                                         // per_row:   row-key column (default: sealcraft_key)
+ *     ];
  *
- * Or by overriding sealcraftContext() for fully custom resolution.
+ * For full custom resolution (delegated context, relationship-based, etc.)
+ * override the public sealcraftContext() method.
+ *
+ * Legacy separate properties — still supported, not deprecated:
+ *
+ *     protected string $sealcraftStrategy        = 'per_row';
+ *     protected string $sealcraftContextType     = 'patient';
+ *     protected string $sealcraftContextColumn   = 'patient_id';
+ *     protected string $sealcraftRowKeyColumn    = 'row_key';
  */
 trait HasEncryptedAttributes
 {
@@ -46,6 +56,43 @@ trait HasEncryptedAttributes
 
             /** @var self $model */
             $model->handleSealcraftContextChange();
+        });
+
+        // Model::replicate() copies all attributes including sealcraft_key,
+        // which would make the clone share the original's DEK — shredding
+        // one would destroy the other's data. For per-row models we:
+        //   1. Decrypt every encrypted attribute using the (still-shared)
+        //      sealcraft_key so plaintext lives on the replica.
+        //   2. Null the sealcraft_key so the `creating` hook mints a fresh
+        //      UUID on save.
+        //   3. The cast's set() will re-encrypt under the new DEK when the
+        //      plaintext is re-assigned below.
+        static::replicating(static function (Model $model): void {
+            /** @var self $model */
+            if ($model->resolveSealcraftStrategy() !== 'per_row') {
+                return;
+            }
+
+            $encryptedAttributes = $model->sealcraftEncryptedAttributes();
+            $decrypted = [];
+
+            foreach ($encryptedAttributes as $attribute) {
+                if (($model->attributes[$attribute] ?? null) !== null) {
+                    $decrypted[$attribute] = $model->getAttribute($attribute);
+                }
+            }
+
+            Encrypted::forgetContext($model);
+            EncryptedJson::forgetContext($model);
+
+            $rowKey = $model->resolveSealcraftRowKeyColumn();
+            $model->attributes[$rowKey] = null;
+
+            foreach ($decrypted as $attribute => $plaintext) {
+                $model->attributes[$attribute] = null;
+                unset($model->classCastCache[$attribute]);
+                $model->setAttribute($attribute, $plaintext);
+            }
         });
     }
 
@@ -114,35 +161,79 @@ trait HasEncryptedAttributes
         }
     }
 
+    /**
+     * Read a key from the model's `$sealcraft` array, or null if absent.
+     * Primary entry point for the unified context configuration.
+     */
+    protected function sealcraftOption(string $key): ?string
+    {
+        if (! property_exists($this, 'sealcraft')) {
+            return null;
+        }
+
+        /** @var mixed $config */
+        $config = $this->sealcraft;
+
+        if (! is_array($config) || ! array_key_exists($key, $config)) {
+            return null;
+        }
+
+        $value = $config[$key];
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
     protected function resolveSealcraftStrategy(): string
     {
-        if (property_exists($this, 'sealcraftStrategy') && is_string($this->sealcraftStrategy)) {
+        if ($value = $this->sealcraftOption('strategy')) {
+            return $value;
+        }
+
+        if (property_exists($this, 'sealcraftStrategy') && is_string($this->sealcraftStrategy) && $this->sealcraftStrategy !== '') {
             return $this->sealcraftStrategy;
         }
 
-        return (string) config('sealcraft.dek_strategy', 'per_group');
+        $configured = config('sealcraft.dek_strategy');
+
+        return is_string($configured) && $configured !== '' ? $configured : 'per_group';
     }
 
     protected function resolveSealcraftContextType(): string
     {
-        if (property_exists($this, 'sealcraftContextType') && is_string($this->sealcraftContextType)) {
+        if ($value = $this->sealcraftOption('type')) {
+            return $value;
+        }
+
+        if (property_exists($this, 'sealcraftContextType') && is_string($this->sealcraftContextType) && $this->sealcraftContextType !== '') {
             return $this->sealcraftContextType;
         }
 
-        return (string) config('sealcraft.context_type', 'tenant');
+        $configured = config('sealcraft.context_type');
+
+        return is_string($configured) && $configured !== '' ? $configured : 'tenant';
     }
 
     protected function resolveSealcraftContextColumn(): string
     {
-        if (property_exists($this, 'sealcraftContextColumn') && is_string($this->sealcraftContextColumn)) {
+        if ($value = $this->sealcraftOption('column')) {
+            return $value;
+        }
+
+        if (property_exists($this, 'sealcraftContextColumn') && is_string($this->sealcraftContextColumn) && $this->sealcraftContextColumn !== '') {
             return $this->sealcraftContextColumn;
         }
 
-        return (string) config('sealcraft.context_column', 'tenant_id');
+        $configured = config('sealcraft.context_column');
+
+        return is_string($configured) && $configured !== '' ? $configured : 'tenant_id';
     }
 
     protected function resolveSealcraftRowContextType(): string
     {
+        if ($value = $this->sealcraftOption('type')) {
+            return $value;
+        }
+
         if (property_exists($this, 'sealcraftContextType') && is_string($this->sealcraftContextType)) {
             return $this->sealcraftContextType;
         }
@@ -152,6 +243,10 @@ trait HasEncryptedAttributes
 
     protected function resolveSealcraftRowKeyColumn(): string
     {
+        if ($value = $this->sealcraftOption('column')) {
+            return $value;
+        }
+
         if (property_exists($this, 'sealcraftRowKeyColumn') && is_string($this->sealcraftRowKeyColumn)) {
             return $this->sealcraftRowKeyColumn;
         }

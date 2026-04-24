@@ -16,6 +16,20 @@ The context is serialized to stable UTF-8 bytes:
 
 This means the same logical context always produces the same bytes, regardless of array ordering or subtle Unicode variants. A cross-context decrypt attempt -- intentional or accidental -- fails authentication.
 
+## Configuration
+
+Configure a model's context with the `$sealcraft` array:
+
+```php
+protected array $sealcraft = [
+    'strategy' => 'per_row',     // 'per_group' (default) | 'per_row'
+    'type'     => 'patient',     // context type name
+    'column'   => 'patient_id',  // per_group: id column; per_row: row-key column
+];
+```
+
+Only keys that differ from defaults need to be set. See each strategy page for its specific config shape.
+
 ## Strategies
 
 Sealcraft supports three context strategies. Pick per model.
@@ -23,6 +37,10 @@ Sealcraft supports three context strategies. Pick per model.
 - [Per-group](/documentation/sealcraft/v1/encryption-contexts/per-group) -- one DEK per tenant / user / patient. Default. Best for multi-tenant SaaS.
 - [Per-row](/documentation/sealcraft/v1/encryption-contexts/per-row) -- one DEK per record. Best for vault-style rows where each row is an independent security boundary.
 - [Delegated context](/documentation/sealcraft/v1/encryption-contexts/delegated-context) -- child records share a parent's DEK. The HIPAA primitive for one-shot crypto-shred.
+
+## Modifier
+
+- [Per-column override](/documentation/sealcraft/v1/encryption-contexts/per-column-override) -- route one attribute to a different context than the rest of the model via cast parameters. Layers over any strategy.
 
 ## Changing context
 

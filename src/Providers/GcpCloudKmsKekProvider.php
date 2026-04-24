@@ -79,6 +79,7 @@ final class GcpCloudKmsKekProvider implements KekProvider, SupportsKeyVersioning
             ->withToken(($this->tokenResolver)())
             ->acceptJson()
             ->asJson()
+            ->throw()
             ->post("{$this->baseUrl}/v1/{$this->resourceName()}:encrypt", [
                 'plaintext' => base64_encode($plaintextDek),
                 'additionalAuthenticatedData' => base64_encode($ctx->toGcpAdditionalAuthenticatedData()),
@@ -115,6 +116,7 @@ final class GcpCloudKmsKekProvider implements KekProvider, SupportsKeyVersioning
                 ->withToken(($this->tokenResolver)())
                 ->acceptJson()
                 ->asJson()
+                ->throw()
                 ->post("{$this->baseUrl}/v1/{$this->resourceName()}:decrypt", [
                     'ciphertext' => base64_encode($wrapped->ciphertext),
                     'additionalAuthenticatedData' => base64_encode($ctx->toGcpAdditionalAuthenticatedData()),
@@ -150,6 +152,7 @@ final class GcpCloudKmsKekProvider implements KekProvider, SupportsKeyVersioning
         $response = $this->retrying(fn () => $this->http
             ->withToken(($this->tokenResolver)())
             ->acceptJson()
+            ->throw()
             ->get("{$this->baseUrl}/v1/{$this->resourceName()}/cryptoKeyVersions"));
 
         $body = $response->json();

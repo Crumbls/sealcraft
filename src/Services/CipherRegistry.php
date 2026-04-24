@@ -34,6 +34,14 @@ final class CipherRegistry
         $this->registerBuiltInDrivers();
     }
 
+    private function listConfiguredCiphers(): string
+    {
+        $ciphers = (array) $this->config->get('sealcraft.ciphers', []);
+        $names = array_keys($ciphers);
+
+        return $names === [] ? '(none configured)' : implode(', ', $names);
+    }
+
     /**
      * @param  Closure(array<string, mixed>): Cipher  $factory
      */
@@ -55,13 +63,21 @@ final class CipherRegistry
         $config = $this->config->get("sealcraft.ciphers.{$name}");
 
         if (! is_array($config)) {
-            throw new SealcraftException("Sealcraft cipher [{$name}] is not configured.");
+            throw new SealcraftException(
+                "Sealcraft cipher [{$name}] is not configured. Valid ciphers: "
+                . $this->listConfiguredCiphers()
+                . '. Set SEALCRAFT_CIPHER in your .env or edit config/sealcraft.php.'
+            );
         }
 
         $driver = (string) ($config['driver'] ?? $name);
 
         if (! isset($this->drivers[$driver])) {
-            throw new SealcraftException("Sealcraft cipher driver [{$driver}] is not registered.");
+            throw new SealcraftException(
+                "Sealcraft cipher driver [{$driver}] is not registered. Valid drivers: "
+                . implode(', ', array_keys($this->drivers))
+                . '.'
+            );
         }
 
         $cipher = ($this->drivers[$driver])($config);
@@ -84,7 +100,9 @@ final class CipherRegistry
 
         if (! isset($this->idIndex[$id])) {
             throw new SealcraftException(
-                "No Sealcraft cipher registered for id [{$id}]. Is the cipher configured and loaded?"
+                "No Sealcraft cipher registered for id [{$id}]. Registered cipher ids: "
+                . (array_keys($this->idIndex) === [] ? '(none)' : implode(', ', array_keys($this->idIndex)))
+                . '. Ensure the cipher is configured in sealcraft.ciphers and that required extensions (e.g. ext-sodium for XChaCha20) are installed.'
             );
         }
 

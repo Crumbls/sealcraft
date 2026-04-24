@@ -61,16 +61,32 @@ final class ProviderRegistry
         $config = $this->config->get("sealcraft.providers.{$name}");
 
         if (! is_array($config)) {
-            throw new SealcraftException("Sealcraft provider [{$name}] is not configured.");
+            throw new SealcraftException(
+                "Sealcraft provider [{$name}] is not configured. Valid providers: "
+                . $this->listConfiguredProviders()
+                . '. Set SEALCRAFT_PROVIDER in your .env or edit config/sealcraft.php.'
+            );
         }
 
         $driver = (string) ($config['driver'] ?? $name);
 
         if (! isset($this->drivers[$driver])) {
-            throw new SealcraftException("Sealcraft provider driver [{$driver}] is not registered.");
+            throw new SealcraftException(
+                "Sealcraft provider driver [{$driver}] is not registered. Valid drivers: "
+                . implode(', ', array_keys($this->drivers))
+                . '.'
+            );
         }
 
         return $this->resolved[$name] = ($this->drivers[$driver])($config, $this->app);
+    }
+
+    private function listConfiguredProviders(): string
+    {
+        $providers = (array) $this->config->get('sealcraft.providers', []);
+        $names = array_keys($providers);
+
+        return $names === [] ? '(none configured)' : implode(', ', $names);
     }
 
     public function default(): KekProvider

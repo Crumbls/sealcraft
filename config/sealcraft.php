@@ -87,6 +87,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | DEK cache bounds
+    |--------------------------------------------------------------------------
+    |
+    | The plaintext DEK cache is per-singleton (per request in HTTP, per job
+    | in queue workers, per tick in Octane). Long-running workers that touch
+    | many distinct tenants would otherwise accumulate an unbounded number
+    | of plaintext DEKs. The cap evicts least-recently-used entries when
+    | exceeded. Set to 0 to disable the cap (unbounded — not recommended
+    | for Horizon / Octane).
+    |
+    */
+    'dek_cache' => [
+        'max_entries' => (int) env('SEALCRAFT_DEK_CACHE_MAX_ENTRIES', 1024),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Fail-fast config validation at boot
+    |--------------------------------------------------------------------------
+    |
+    | When true, SealcraftServiceProvider validates the entire sealcraft
+    | config block during boot() and throws SealcraftException on the first
+    | problem — so missing env vars, typo'd provider names, and out-of-range
+    | values fail at deploy time instead of on first unwrap.
+    |
+    | Disable only when intentionally testing bad config or bootstrapping a
+    | partially-configured environment.
+    |
+    */
+    'validate_on_boot' => (bool) env('SEALCRAFT_VALIDATE_ON_BOOT', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Rate limiting
     |--------------------------------------------------------------------------
     |
@@ -119,7 +152,7 @@ return [
             'crypto_key' => env('SEALCRAFT_GCP_CRYPTO_KEY'),
         ],
 
-        'azure_kv' => [
+        'azure_key_vault' => [
             'driver' => 'azure_key_vault',
             'vault_url' => env('SEALCRAFT_AZURE_VAULT_URL'),
             'key_name' => env('SEALCRAFT_AZURE_KEY_NAME'),
@@ -148,7 +181,7 @@ return [
          *
          * Security posture: weaker than a live KMS provider (KEK
          * plaintext lives in app process memory + env). Prefer
-         * aws_kms / azure_kv / gcp_kms / vault_transit when your
+         * aws_kms / azure_key_vault / gcp_kms / vault_transit when your
          * infrastructure allows runtime KMS calls.
          *
          * Rotation is non-destructive: add a new version, flip

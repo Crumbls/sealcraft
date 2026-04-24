@@ -6,13 +6,18 @@ namespace Crumbls\Sealcraft;
 
 use Crumbls\Sealcraft\Commands\AuditCommand;
 use Crumbls\Sealcraft\Commands\BackfillRowKeysCommand;
+use Crumbls\Sealcraft\Commands\DoctorCommand;
 use Crumbls\Sealcraft\Commands\GenerateDekCommand;
+use Crumbls\Sealcraft\Commands\InstallCommand;
 use Crumbls\Sealcraft\Commands\MigrateProviderCommand;
+use Crumbls\Sealcraft\Commands\ModelsCommand;
 use Crumbls\Sealcraft\Commands\ReencryptContextCommand;
 use Crumbls\Sealcraft\Commands\RotateDekCommand;
 use Crumbls\Sealcraft\Commands\RotateKekCommand;
 use Crumbls\Sealcraft\Commands\ShredCommand;
+use Crumbls\Sealcraft\Commands\VerifyCommand;
 use Crumbls\Sealcraft\Services\CipherRegistry;
+use Crumbls\Sealcraft\Services\ConfigValidator;
 use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Services\KeyManager;
 use Crumbls\Sealcraft\Services\ProviderRegistry;
@@ -36,7 +41,9 @@ class SealcraftServiceProvider extends ServiceProvider
             config: $app->make(Repository::class),
         ));
 
-        $this->app->singleton(DekCache::class, fn (): DekCache => new DekCache);
+        $this->app->singleton(DekCache::class, fn (Application $app): DekCache => new DekCache(
+            maxEntries: (int) $app->make(Repository::class)->get('sealcraft.dek_cache.max_entries', 1024),
+        ));
 
         $this->app->singleton(KeyManager::class, fn (Application $app): KeyManager => new KeyManager(
             providers: $app->make(ProviderRegistry::class),
@@ -53,6 +60,18 @@ class SealcraftServiceProvider extends ServiceProvider
         $this->registerPublishing();
         $this->registerCommands();
         $this->registerTerminatingFlush();
+        $this->validateConfigOnBoot();
+    }
+
+    protected function validateConfigOnBoot(): void
+    {
+        if ((bool) $this->app->make(Repository::class)->get('sealcraft.validate_on_boot', true) !== true) {
+            return;
+        }
+
+        $config = (array) $this->app->make(Repository::class)->get('sealcraft', []);
+
+        ConfigValidator::validate($config);
     }
 
     protected function registerCommands(): void
@@ -64,12 +83,16 @@ class SealcraftServiceProvider extends ServiceProvider
         $this->commands([
             AuditCommand::class,
             BackfillRowKeysCommand::class,
+            DoctorCommand::class,
             GenerateDekCommand::class,
+            InstallCommand::class,
             MigrateProviderCommand::class,
+            ModelsCommand::class,
             ReencryptContextCommand::class,
             RotateDekCommand::class,
             RotateKekCommand::class,
             ShredCommand::class,
+            VerifyCommand::class,
         ]);
     }
 

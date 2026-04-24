@@ -15,12 +15,16 @@ class Document extends Model
 {
     use HasEncryptedAttributes;
 
-    protected string $sealcraftContextType   = 'tenant';
-    protected string $sealcraftContextColumn = 'tenant_id';
+    protected array $sealcraft = [
+        'type'   => 'tenant',
+        'column' => 'tenant_id',
+    ];
 
     protected $casts = ['body' => Encrypted::class];
 }
 ```
+
+Per-group is the default strategy, so `'strategy' => 'per_group'` is implied and can be omitted. If your app's context column is literally `tenant_id` and your context type name is `tenant` (the shipped defaults), you can drop the `$sealcraft` array entirely.
 
 ## How it works
 
@@ -41,3 +45,15 @@ Read workload:
 
 - Each row is an independent security boundary -- use [per-row](/documentation/sealcraft/v1/encryption-contexts/per-row)
 - A user's data spans multiple root-owned tables and you want one shred to destroy it all -- use [delegated context](/documentation/sealcraft/v1/encryption-contexts/delegated-context)
+- One column on this model needs a different context than the rest -- use [per-column override](/documentation/sealcraft/v1/encryption-contexts/per-column-override)
+
+## Legacy form
+
+The individual properties still resolve identically — no migration required on models already using them:
+
+```php
+protected string $sealcraftContextType   = 'tenant';
+protected string $sealcraftContextColumn = 'tenant_id';
+```
+
+The `$sealcraft` array is the recommended form for new models.

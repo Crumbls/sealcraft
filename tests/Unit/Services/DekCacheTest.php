@@ -11,6 +11,64 @@ beforeEach(function (): void {
     $this->ctx = new EncryptionContext('tenant', 42);
 });
 
+it('evicts least-recently-used entries when max_entries is exceeded', function (): void {
+    $cache = new DekCache(maxEntries: 3);
+
+    $a = new EncryptionContext('tenant', 'a');
+    $b = new EncryptionContext('tenant', 'b');
+    $c = new EncryptionContext('tenant', 'c');
+    $d = new EncryptionContext('tenant', 'd');
+
+    $cache->put($a, 'dek-a');
+    $cache->put($b, 'dek-b');
+    $cache->put($c, 'dek-c');
+    expect($cache->count())->toBe(3);
+
+    // Touch $a — this moves it to the MRU position
+    $cache->get($a);
+
+    // Add $d — eviction should take the LRU ($b), not $a
+    $cache->put($d, 'dek-d');
+
+    expect($cache->count())->toBe(3);
+    expect($cache->has($a))->toBeTrue();
+    expect($cache->has($b))->toBeFalse();
+    expect($cache->has($c))->toBeTrue();
+    expect($cache->has($d))->toBeTrue();
+});
+
+it('does not evict when max_entries is 0 (unbounded mode)', function (): void {
+    $cache = new DekCache(maxEntries: 0);
+
+    for ($i = 0; $i < 10; $i++) {
+        $cache->put(new EncryptionContext('tenant', (string) $i), "dek-{$i}");
+    }
+
+    expect($cache->count())->toBe(10);
+});
+
+it('re-inserting an existing key refreshes its LRU position', function (): void {
+    $cache = new DekCache(maxEntries: 2);
+
+    $a = new EncryptionContext('tenant', 'a');
+    $b = new EncryptionContext('tenant', 'b');
+    $c = new EncryptionContext('tenant', 'c');
+
+    $cache->put($a, 'dek-a');
+    $cache->put($b, 'dek-b');
+    $cache->put($a, 'dek-a-v2'); // refresh LRU position of a
+
+    $cache->put($c, 'dek-c'); // should evict $b (oldest), not $a
+
+    expect($cache->has($a))->toBeTrue();
+    expect($cache->has($b))->toBeFalse();
+    expect($cache->has($c))->toBeTrue();
+});
+
+it('exposes the configured max_entries value', function (): void {
+    expect((new DekCache(maxEntries: 512))->maxEntries())->toBe(512);
+});
+
 it('returns null for an unknown context', function (): void {
     expect($this->cache->has($this->ctx))->toBeFalse();
     expect($this->cache->get($this->ctx))->toBeNull();

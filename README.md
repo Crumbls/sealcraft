@@ -8,6 +8,7 @@ built-in `Crypt` -- it does not replace it.
 - **Providers**: AWS KMS, GCP Cloud KMS, Azure Key Vault, HashiCorp Vault Transit, Local (dev/test), Null (testing)
 - **Ciphers**: AES-256-GCM (default), XChaCha20-Poly1305 (via libsodium)
 - **One-command onboarding**: `php artisan sealcraft:install && php artisan sealcraft:verify`
+- **Full documentation**: <https://www.crumbls.com/documentation/sealcraft>
 
 ## What this is
 
@@ -575,6 +576,14 @@ composer format     # Pint
 
 Integration tests for AWS KMS use mocked `KmsClient`; GCP, Azure, and
 Vault Transit use `Http::fake`. No live cloud credentials required.
+
+## Documentation
+
+Full reference documentation — installation, configuration, every provider, every encryption-context strategy, every artisan command, troubleshooting, and ADRs — is published at:
+
+<https://www.crumbls.com/documentation/sealcraft>
+
+The Markdown sources live under `docs/` in this repository and are versioned per release.
 
 ## Contributing
 

@@ -15,11 +15,13 @@ class VaultEntry extends Model
 {
     use HasEncryptedAttributes;
 
-    protected string $sealcraftStrategy = 'per_row';
+    protected array $sealcraft = ['strategy' => 'per_row'];
 
     protected $casts = ['secret' => Encrypted::class];
 }
 ```
+
+The context type defaults to the model's morph class (e.g. `App\Models\VaultEntry`); override with `'type' => 'vault_entry'` for stable context strings that survive namespace changes. The row-key column defaults to `sealcraft_key`; override with `'column' => 'row_key'` if your migration uses a different name.
 
 ## Migration
 
@@ -50,3 +52,15 @@ A `creating` hook on the trait ensures every newly INSERTed per-row model carrie
 ## Performance
 
 One KEK unwrap per distinct row you read. The DEK cache keeps steady-state request overhead low, but bulk reads of unique rows are more expensive than per-group.
+
+## Legacy form
+
+The individual properties still resolve identically — no migration required:
+
+```php
+protected string $sealcraftStrategy     = 'per_row';
+protected string $sealcraftContextType  = 'vault_entry';
+protected string $sealcraftRowKeyColumn = 'row_key';
+```
+
+The `$sealcraft` array is the recommended form for new models.

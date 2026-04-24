@@ -52,6 +52,47 @@ final class EncryptedJson implements CastsAttributes
     /** @var \WeakMap<Model, EncryptionContext>|null */
     private static ?\WeakMap $contextCache = null;
 
+    /** @var array<string, string> Per-cast context overrides parsed from cast parameters. */
+    private array $overrides = [];
+
+    /**
+     * Cast parameters accepted from `$casts`:
+     *
+     *   'col' => EncryptedJson::class . ':type=employer,column=employer_id'
+     *
+     * Both `type` and `column` must be provided together when overriding.
+     */
+    public function __construct(string ...$params)
+    {
+        foreach ($params as $param) {
+            if (! str_contains($param, '=')) {
+                continue;
+            }
+
+            [$key, $value] = explode('=', $param, 2);
+            $key = trim($key);
+            $value = trim($value);
+
+            if ($value === '') {
+                continue;
+            }
+
+            $this->overrides[$key] = $value;
+        }
+
+        if ($this->overrides !== []) {
+            $haveType = isset($this->overrides['type']);
+            $haveColumn = isset($this->overrides['column']);
+
+            if ($haveType xor $haveColumn) {
+                throw new SealcraftException(
+                    'EncryptedJson cast parameters require BOTH `type` and `column` together. '
+                    . 'Example: EncryptedJson::class . \':type=employer,column=employer_id\''
+                );
+            }
+        }
+    }
+
     public static function forgetContext(Model $model): void
     {
         if (self::$contextCache !== null) {
@@ -272,6 +313,10 @@ final class EncryptedJson implements CastsAttributes
 
     private function contextFor(Model $model): EncryptionContext
     {
+        if ($this->overrides !== []) {
+            return $this->contextFromOverrides($model);
+        }
+
         self::$contextCache ??= new \WeakMap;
 
         if (isset(self::$contextCache[$model])) {
@@ -289,6 +334,27 @@ final class EncryptedJson implements CastsAttributes
         self::$contextCache[$model] = $ctx;
 
         return $ctx;
+    }
+
+    private function contextFromOverrides(Model $model): EncryptionContext
+    {
+        $type = $this->overrides['type'];
+        $column = $this->overrides['column'];
+        $value = $model->getAttribute($column);
+
+        if ($value === null || $value === '') {
+            throw new InvalidContextException(sprintf(
+                'EncryptedJson cast with per-column override on %s requires column [%s] to be set (resolving context type [%s]).',
+                get_class($model),
+                $column,
+                $type,
+            ));
+        }
+
+        return new EncryptionContext(
+            contextType: $type,
+            contextId: is_int($value) ? $value : (string) $value,
+        );
     }
 
     private function cipherFor(DataKey $dataKey): Cipher
