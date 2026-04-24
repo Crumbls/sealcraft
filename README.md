@@ -1,37 +1,62 @@
 # Sealcraft
 
-Production-grade envelope encryption for Laravel. Field-level, context-bound,
-KMS-backed. Built for HIPAA-adjacent apps, multi-tenant SaaS, and regulated
-industries that need a defensible key rotation and right-to-be-forgotten
-story.
+KMS-backed, field-level encryption for Laravel. Runs alongside Laravel's
+built-in `Crypt` -- it does not replace it.
 
 - **Laravel**: 11, 12, 13
 - **PHP**: 8.2+
 - **Providers**: AWS KMS, GCP Cloud KMS, Azure Key Vault, HashiCorp Vault Transit, Local (dev/test), Null (testing)
 - **Ciphers**: AES-256-GCM (default), XChaCha20-Poly1305 (via libsodium)
+- **One-command onboarding**: `php artisan sealcraft:install && php artisan sealcraft:verify`
 
-## What and why
+## What this is
 
-Laravel's default `Crypt` / `encrypted` cast uses a single `APP_KEY` symmetric
-secret held by the application. That model fails every serious compliance
-review: no rotation story, no blast-radius containment, no KMS integration,
-no way to cryptographically destroy one tenant's data.
+Sealcraft encrypts specific database columns with short-lived Data Encryption
+Keys (DEKs) that are wrapped by a long-lived Key Encryption Key (KEK) inside
+a cloud KMS. Use it when a particular column needs KMS-backed key custody,
+documented rotation, per-tenant isolation, or cryptographic destruction on
+demand.
 
-Sealcraft implements **envelope encryption**: a short-lived **Data Encryption
-Key (DEK)** actually encrypts your field data, and a long-lived **Key
-Encryption Key (KEK)** inside a KMS wraps the DEK. The plaintext DEK never
-persists to disk — it's unwrapped on demand, cached in memory for the
-request's lifetime, and discarded on shutdown. One DEK can protect an entire
-tenant's (or user's) data; rotating the KEK means rewrapping one row per
-tenant, not re-encrypting every column in every table.
+Sealcraft does not replace Laravel's `Crypt` facade or `encrypted` cast.
+Those keep doing what they do best -- sessions, cookies, signed URLs, queue
+payloads, and casual field encryption where `APP_KEY` custody is acceptable.
+Most apps that adopt Sealcraft still use `Crypt` everywhere else.
+
+## Use cases
+
+- **Healthcare (HIPAA-adjacent):** patient SSN/DOB/diagnosis, telehealth
+  notes, insurance IDs -- including right-to-be-forgotten via one-shot
+  crypto-shred of the patient's DEK.
+- **Financial services:** bank account numbers, ABA routing, tax IDs,
+  payout destination details on a marketplace.
+- **Multi-tenant SaaS:** one DEK per tenant so a stolen DB dump means
+  one-per-tenant unwrap attempts, not a single `APP_KEY` unlocking every
+  customer. Per-tenant crypto-shred on cancellation.
+- **Identity / auth:** stored OAuth refresh tokens, third-party API keys,
+  MFA backup codes, KYC documents (passport / DL / national ID).
+- **Legal / compliance:** privileged communications, protected-identity
+  fields, GDPR Article 17 fulfillment across warehouses and backups via
+  crypto-shred.
+- **Consumer apps:** encrypted notes, journals, personal vaults where
+  users expect that an internal DB reader alone cannot see content.
+- **B2B SaaS:** CRM PII in strict-privacy jurisdictions, HR data
+  (salaries, DOB, home addresses), sensitive contract metadata.
+
+How it works: a plaintext DEK is unwrapped on demand, cached in memory for
+the request, and overwritten with null bytes at request termination.
+Rotating the KEK rewraps one DB row per tenant; column ciphertext never
+changes.
 
 ## When NOT to use this
 
-- **You need `WHERE encrypted_col = ?` queries.** Searchable/blind-indexed
+- **Sessions, cookies, signed URLs, queue payloads.** Those are Laravel
+  `Crypt`'s job; Sealcraft is not designed for them.
+- **You need `WHERE encrypted_col = ?` queries.** Searchable / blind-indexed
   encryption is out of scope for v1. Plan is to integrate CipherSweet-style
   blind indexing in v2.
-- **Your app has one tenant and no compliance story.** Laravel's built-in
-  `encrypted` cast is fine.
+- **Single-tenant app with no compliance story.** Laravel's built-in
+  `encrypted` cast is fine -- you won't get your money's worth out of the
+  extra operational surface.
 - **You can't run a KMS and don't want to.** Sealcraft's local file
   provider is for development only and refuses to run in production
   without an explicit opt-in flag.
@@ -40,6 +65,15 @@ tenant, not re-encrypting every column in every table.
 
 ```bash
 composer require crumbls/sealcraft
+php artisan sealcraft:install
+php artisan sealcraft:verify
+```
+
+`sealcraft:install` publishes config, publishes the migration, and runs `migrate`. `sealcraft:verify` round-trips a synthetic DEK through your configured provider and cipher so you know the deploy is actually wired up. Both commands are idempotent.
+
+If you need to run the steps manually (for example in a CI pipeline that runs migrations separately), the low-level form still works:
+
+```bash
 php artisan vendor:publish --tag=sealcraft-config
 php artisan vendor:publish --tag=sealcraft-migrations
 php artisan migrate
@@ -142,7 +176,7 @@ config(['sealcraft.providers.gcp_kms.token_resolver' => fn (): string => GcpAuth
 ### Azure Key Vault
 
 ```dotenv
-SEALCRAFT_PROVIDER=azure_kv
+SEALCRAFT_PROVIDER=azure_key_vault
 SEALCRAFT_AZURE_VAULT_URL=https://my-vault.vault.azure.net
 SEALCRAFT_AZURE_KEY_NAME=app-kek
 SEALCRAFT_AZURE_AAD_STRATEGY=synthetic
@@ -158,8 +192,8 @@ Bind the token resolver and (for synthetic AAD) an HMAC key resolver:
 
 ```php
 config([
-    'sealcraft.providers.azure_kv.token_resolver' => fn () => Azure::kvToken(),
-    'sealcraft.providers.azure_kv.hmac_key_resolver' => fn () => AzureSecretHelper::hmacKeyBytes(),
+    'sealcraft.providers.azure_key_vault.token_resolver' => fn () => Azure::kvToken(),
+    'sealcraft.providers.azure_key_vault.hmac_key_resolver' => fn () => AzureSecretHelper::hmacKeyBytes(),
 ]);
 ```
 
@@ -191,6 +225,19 @@ and is used as AAD at the cipher layer, and, where the provider
 supports it, at the wrap layer too. A cross-context decrypt attempt
 fails authentication.
 
+Configure a model's context with a single `$sealcraft` array:
+
+```php
+protected array $sealcraft = [
+    'strategy' => 'per_group',   // 'per_group' (default) | 'per_row'
+    'type'     => 'tenant',      // context type name
+    'column'   => 'tenant_id',   // per_group: context id column
+                                 // per_row:   row-key column (default: sealcraft_key)
+];
+```
+
+Only the keys that differ from defaults need to be set.
+
 ### Per-group (default) — one DEK per tenant / user / patient
 
 Every row sharing a context value uses one DEK. KEK rotation rewraps
@@ -201,8 +248,10 @@ class Document extends Model
 {
     use HasEncryptedAttributes;
 
-    protected string $sealcraftContextColumn = 'tenant_id';
-    protected string $sealcraftContextType   = 'tenant';
+    protected array $sealcraft = [
+        'type'   => 'tenant',
+        'column' => 'tenant_id',
+    ];
 
     protected $casts = ['body' => Encrypted::class];
 }
@@ -219,7 +268,7 @@ class VaultEntry extends Model
 {
     use HasEncryptedAttributes;
 
-    protected string $sealcraftStrategy = 'per_row';
+    protected array $sealcraft = ['strategy' => 'per_row'];
 
     protected $casts = ['secret' => Encrypted::class];
 }
@@ -239,7 +288,7 @@ class OwnedUser extends Model
 {
     use HasEncryptedAttributes;
 
-    protected string $sealcraftStrategy = 'per_row';
+    protected array $sealcraft = ['strategy' => 'per_row'];
 
     protected $casts = ['ssn' => Encrypted::class, 'dob' => Encrypted::class];
 }
@@ -258,6 +307,43 @@ class OwnedRecord extends Model
     }
 }
 ```
+
+### Per-column override — one model, multiple contexts
+
+Most models use one context for all encrypted columns. When you need
+to split — for example, a patient record where most fields belong to
+the patient but one field belongs to the employer who issued it —
+pass `type=` and `column=` as cast parameters:
+
+```php
+class Patient extends Model
+{
+    use HasEncryptedAttributes;
+
+    protected array $sealcraft = [
+        'type'   => 'patient',
+        'column' => 'patient_id',
+    ];
+
+    protected $casts = [
+        // Uses model-level context (patient, patient_id)
+        'ssn'        => Encrypted::class,
+        'history'    => EncryptedJson::class,
+
+        // Per-column override: DEK under (employer, employer_id)
+        'work_notes' => Encrypted::class . ':type=employer,column=employer_id',
+    ];
+}
+```
+
+The two context bindings are independent — shredding the patient
+destroys `ssn` and `history` but leaves `work_notes` readable until
+the employer context is shredded separately.
+
+> The legacy form — four separate properties (`$sealcraftStrategy`,
+> `$sealcraftContextType`, `$sealcraftContextColumn`,
+> `$sealcraftRowKeyColumn`) — still works. The `$sealcraft` array is
+> the recommended form going forward.
 
 ## Changing context (tenant moves, record re-owned)
 
@@ -336,10 +422,7 @@ window (the command assumes no concurrent writes for the affected
 context).
 
 ```bash
-php artisan sealcraft:rotate-dek \
-    "App\\Models\\Patient" \
-    --context-type=patient \
-    --context-id=42
+php artisan sealcraft:rotate-dek "App\\Models\\Patient" patient 42
 ```
 
 ### Provider migration (move from one KMS to another)
