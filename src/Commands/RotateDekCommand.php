@@ -9,6 +9,7 @@ use Crumbls\Sealcraft\Concerns\HasEncryptedAttributes;
 use Crumbls\Sealcraft\Contracts\GeneratesDataKeys;
 use Crumbls\Sealcraft\Events\DekCreated;
 use Crumbls\Sealcraft\Events\DekRotated;
+use Crumbls\Sealcraft\Events\DekRotationStarting;
 use Crumbls\Sealcraft\Models\DataKey;
 use Crumbls\Sealcraft\Services\CipherRegistry;
 use Crumbls\Sealcraft\Services\DekCache;
@@ -19,6 +20,7 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use RuntimeException;
 
 /**
  * Rotate the DEK for a context by synchronously re-encrypting every
@@ -67,7 +69,8 @@ final class RotateDekCommand extends Command
             (string) $this->argument('context_type'),
             (string) $this->argument('context_id'),
         );
-        $cache->flush();
+
+        // --- pre-flight checks (no lock held yet) ---
 
         $oldDataKey = DataKey::query()
             ->forContext($ctx->contextType, $ctx->contextId)
@@ -111,21 +114,33 @@ final class RotateDekCommand extends Command
             return self::SUCCESS;
         }
 
-        // Unwrap the current DEK so we can decrypt existing rows.
-        $oldPlaintext = $manager->getOrCreateDek($ctx);
+        // --- acquire lock and run rotation ---
+        // Lock acquired after all pre-flight validation so it is never held
+        // across an early-return. Released unconditionally in finally.
 
-        // Mint a replacement DEK but keep it in memory until all rows succeed.
-        if ($provider instanceof GeneratesDataKeys) {
-            $replacement = $provider->generateDataKey($ctx, $cipher->keyBytes());
-        } else {
-            $newPlaintext = random_bytes($cipher->keyBytes());
-            $replacement = new DataKeyPair($newPlaintext, $provider->wrap($newPlaintext, $ctx));
-        }
+        $lockKey = 'sealcraft_rotate_' . $ctx->toCanonicalHash();
+        $this->acquireAdvisoryLock($lockKey);
 
-        $aad = $ctx->toCanonicalBytes();
         $rewritten = 0;
 
         try {
+            $cache->flush();
+
+            Event::dispatch(new DekRotationStarting($ctx, $oldDataKey, $modelClass, $total));
+
+            // Unwrap the current DEK so we can decrypt existing rows.
+            $oldPlaintext = $manager->getOrCreateDek($ctx);
+
+            // Mint a replacement DEK but keep it in memory until all rows succeed.
+            if ($provider instanceof GeneratesDataKeys) {
+                $replacement = $provider->generateDataKey($ctx, $cipher->keyBytes());
+            } else {
+                $newPlaintext = random_bytes($cipher->keyBytes());
+                $replacement = new DataKeyPair($newPlaintext, $provider->wrap($newPlaintext, $ctx));
+            }
+
+            $aad = $ctx->toCanonicalBytes();
+
             $baseQuery->chunkById((int) max(1, (int) $this->option('chunk')), function ($rows) use ($modelClass, $encryptedAttrs, $cipher, $oldPlaintext, $replacement, $aad, &$rewritten): void {
                 foreach ($rows as $row) {
                     /** @var Model $row */
@@ -155,33 +170,35 @@ final class RotateDekCommand extends Command
                     }
                 }
             });
+
+            // Finalize: retire old, activate new, atomically.
+            DB::transaction(function () use ($oldDataKey, $replacement, $ctx, $cipherName): DataKey {
+                $oldDataKey->fill(['retired_at' => now()])->save();
+
+                $fresh = DataKey::query()->create([
+                    'context_type' => $ctx->contextType,
+                    'context_id' => (string) $ctx->contextId,
+                    'provider_name' => $replacement->wrapped->providerName,
+                    'key_id' => $replacement->wrapped->keyId,
+                    'key_version' => $replacement->wrapped->keyVersion,
+                    'cipher' => $cipherName,
+                    'wrapped_dek' => $replacement->wrapped->toStorageString(),
+                ]);
+
+                Event::dispatch(new DekCreated($fresh, $ctx, $replacement->wrapped->providerName));
+                Event::dispatch(new DekRotated($fresh, $replacement->wrapped->providerName, $oldDataKey->key_version, $fresh->key_version));
+
+                return $fresh;
+            });
+
+            $cache->flush();
         } catch (\Throwable $e) {
             $this->error('Row re-encryption failed; no DataKeys were touched. Error: ' . $e->getMessage());
 
             return self::FAILURE;
+        } finally {
+            $this->releaseAdvisoryLock($lockKey);
         }
-
-        // Finalize: retire old, activate new, atomically.
-        DB::transaction(function () use ($oldDataKey, $replacement, $ctx, $cipherName): DataKey {
-            $oldDataKey->fill(['retired_at' => now()])->save();
-
-            $fresh = DataKey::query()->create([
-                'context_type' => $ctx->contextType,
-                'context_id' => (string) $ctx->contextId,
-                'provider_name' => $replacement->wrapped->providerName,
-                'key_id' => $replacement->wrapped->keyId,
-                'key_version' => $replacement->wrapped->keyVersion,
-                'cipher' => $cipherName,
-                'wrapped_dek' => $replacement->wrapped->toStorageString(),
-            ]);
-
-            Event::dispatch(new DekCreated($fresh, $ctx, $replacement->wrapped->providerName));
-            Event::dispatch(new DekRotated($fresh, $replacement->wrapped->providerName, $oldDataKey->key_version, $fresh->key_version));
-
-            return $fresh;
-        });
-
-        $cache->flush();
 
         $this->info("Re-encrypted {$rewritten} row(s); DEK rotated.");
 
@@ -200,6 +217,56 @@ final class RotateDekCommand extends Command
         $attrs = $ref->invoke($model);
 
         return $attrs;
+    }
+
+    private function acquireAdvisoryLock(string $key): void
+    {
+        $driver = DB::connection()->getDriverName();
+
+        if ($driver === 'pgsql') {
+            $intKey = abs(crc32($key));
+            $result = DB::selectOne('SELECT pg_try_advisory_lock(?) AS acquired', [$intKey]);
+
+            if (! $result?->acquired) {
+                throw new RuntimeException(
+                    "Could not acquire advisory lock for this context. Another rotate-dek may be in progress."
+                );
+            }
+
+            return;
+        }
+
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            $mysqlKey = substr($key, 0, 64);
+            $result = DB::selectOne('SELECT GET_LOCK(?, 0) AS acquired', [$mysqlKey]);
+
+            if ((int) ($result?->acquired ?? 0) !== 1) {
+                throw new RuntimeException(
+                    "Could not acquire advisory lock for this context. Another rotate-dek may be in progress."
+                );
+            }
+
+            return;
+        }
+
+        // SQLite and other drivers do not support advisory locks. The operator
+        // must ensure no concurrent writes, as documented.
+        $this->warn("Advisory locks are not supported for driver [{$driver}]; relying on operator quiescence.");
+    }
+
+    private function releaseAdvisoryLock(string $key): void
+    {
+        $driver = DB::connection()->getDriverName();
+
+        if ($driver === 'pgsql') {
+            DB::selectOne('SELECT pg_advisory_unlock(?)', [abs(crc32($key))]);
+
+            return;
+        }
+
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            DB::selectOne('SELECT RELEASE_LOCK(?)', [substr($key, 0, 64)]);
+        }
     }
 
     private function resolveFilterColumn(Model $probe): string

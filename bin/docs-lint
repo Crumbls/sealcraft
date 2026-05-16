@@ -37,6 +37,8 @@ if (! is_dir($docsRoot)) {
     exit(2);
 }
 
+$packageSlug = basename($packageRoot);
+
 $filenameRegex = '/^[a-z0-9][a-z0-9\-]*\.md$/';
 $errors = [];
 $mdFiles = [];
@@ -102,7 +104,7 @@ foreach ($mdFiles as $path) {
         }
 
         if (str_starts_with($href, '/documentation/')) {
-            $target = resolveDocTarget($docsRoot, $href);
+            $target = resolveDocTarget($docsRoot, $href, $packageSlug);
             if ($target === null) {
                 $errors[] = "{$rel}:{$linkLine}: broken link `{$href}` (no matching doc file)";
             }
@@ -165,7 +167,7 @@ function findLinks(string $body): array
     return $links;
 }
 
-function resolveDocTarget(string $docsRoot, string $href): ?string
+function resolveDocTarget(string $docsRoot, string $href, string $packageSlug): ?string
 {
     $path = parse_url($href, PHP_URL_PATH);
     if (! is_string($path)) {
@@ -174,8 +176,20 @@ function resolveDocTarget(string $docsRoot, string $href): ?string
 
     $parts = array_values(array_filter(explode('/', $path), fn ($p) => $p !== ''));
 
-    if (count($parts) < 3 || $parts[0] !== 'documentation') {
+    if (count($parts) < 2 || $parts[0] !== 'documentation') {
         return null;
+    }
+
+    // Cross-package link: cannot validate against this package's filesystem,
+    // accept as opaque. The site controller resolves it at request time.
+    if ($parts[1] !== $packageSlug) {
+        return $href;
+    }
+
+    // /documentation/{pkg} alone -- controller redirects to the default
+    // version. As long as the package has docs, this is valid.
+    if (count($parts) === 2) {
+        return is_file($docsRoot . '/_index.md') ? $docsRoot . '/_index.md' : null;
     }
 
     $slugParts = array_slice($parts, 3);

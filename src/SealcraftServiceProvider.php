@@ -60,6 +60,8 @@ class SealcraftServiceProvider extends ServiceProvider
         $this->registerPublishing();
         $this->registerCommands();
         $this->registerTerminatingFlush();
+        $this->registerQueueFlush();
+        $this->registerOctaneFlush();
         $this->validateConfigOnBoot();
     }
 
@@ -125,5 +127,43 @@ class SealcraftServiceProvider extends ServiceProvider
                 $this->app->make(DekCache::class)->flush();
             }
         });
+    }
+
+    protected function registerQueueFlush(): void
+    {
+        // app->terminating() is invoked once when the worker process exits, not
+        // between individual jobs in queue:work. Wire explicit per-job flush so
+        // plaintext DEKs from one job do not persist into the next.
+        $flush = function (): void {
+            if ($this->app->resolved(DekCache::class)) {
+                $this->app->make(DekCache::class)->flush();
+            }
+        };
+
+        $this->app['events']->listen(\Illuminate\Queue\Events\JobProcessed::class, $flush);
+        $this->app['events']->listen(\Illuminate\Queue\Events\JobFailed::class, $flush);
+        $this->app['events']->listen(\Illuminate\Queue\Events\JobExceptionOccurred::class, $flush);
+    }
+
+    protected function registerOctaneFlush(): void
+    {
+        // Octane keeps the application alive across requests and tasks; it does
+        // not invoke app->terminating() between units of work, so we must flush
+        // explicitly on each Octane lifecycle boundary.
+        $flush = function (): void {
+            if ($this->app->resolved(DekCache::class)) {
+                $this->app->make(DekCache::class)->flush();
+            }
+        };
+
+        foreach ([
+            'Laravel\Octane\Events\RequestTerminated',
+            'Laravel\Octane\Events\TaskTerminated',
+            'Laravel\Octane\Events\TickTerminated',
+        ] as $event) {
+            if (class_exists($event)) {
+                $this->app['events']->listen($event, $flush);
+            }
+        }
     }
 }

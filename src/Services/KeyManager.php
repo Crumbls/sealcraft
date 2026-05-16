@@ -10,7 +10,9 @@ use Crumbls\Sealcraft\Events\DekCreated;
 use Crumbls\Sealcraft\Events\DekRotated;
 use Crumbls\Sealcraft\Events\DekShredded;
 use Crumbls\Sealcraft\Events\DekUnwrapped;
+use Crumbls\Sealcraft\Events\UnwrapRateLimited;
 use Crumbls\Sealcraft\Exceptions\ContextShreddedException;
+use Crumbls\Sealcraft\Exceptions\KekUnavailableException;
 use Crumbls\Sealcraft\Exceptions\SealcraftException;
 use Crumbls\Sealcraft\Models\DataKey;
 use Crumbls\Sealcraft\Values\EncryptionContext;
@@ -353,7 +355,8 @@ final class KeyManager
         try {
             $plaintext = $provider->unwrap($wrapped, $ctx);
         } catch (Throwable $e) {
-            Event::dispatch(new DecryptionFailed('kek_unwrap', $ctx, $dataKey->provider_name, $e));
+            $kind = $e instanceof KekUnavailableException ? 'transient' : 'auth';
+            Event::dispatch(new DecryptionFailed('kek_unwrap', $ctx, $dataKey->provider_name, $e, $kind));
 
             throw $e;
         }
@@ -382,6 +385,8 @@ final class KeyManager
         $key = 'sealcraft:unwrap:' . $ctx->toCanonicalHash();
 
         if (RateLimiter::tooManyAttempts($key, $limit)) {
+            Event::dispatch(new UnwrapRateLimited($ctx, $limit));
+
             throw new SealcraftException(
                 "Sealcraft unwrap rate limit exceeded for context [{$ctx->contextType}:{$ctx->contextId}]."
             );

@@ -44,7 +44,7 @@ Most apps that adopt Sealcraft still use `Crypt` everywhere else.
   (salaries, DOB, home addresses), sensitive contract metadata.
 
 How it works: a plaintext DEK is unwrapped on demand, cached in memory for
-the request, and overwritten with null bytes at request termination.
+the request, and the primary DEK reference is best-effort zeroed at request termination. PHP's string immutability and copy-on-write semantics mean transient copies created inside cipher and KMS provider calls may persist until garbage collection; the zeroing guarantee covers the single in-memory cache slot only.
 Rotating the KEK rewraps one DB row per tenant; column ciphertext never
 changes.
 
@@ -425,6 +425,16 @@ context).
 ```bash
 php artisan sealcraft:rotate-dek "App\\Models\\Patient" patient 42
 ```
+
+The command acquires a DB-level advisory lock before re-encrypting rows, so
+two concurrent `rotate-dek` invocations on the same context will not race —
+the second fails immediately with a clear error. The lock does **not** block
+normal application writes. A concurrent application write during rotation
+can land under the old DEK after the command has already processed that row,
+leaving it unreadable once the old DEK is retired. Preventing this is the
+caller's responsibility; the `DekRotationStarting` event is fired immediately
+before re-encryption begins and can be used to wire a write-gating listener
+if your deployment requires true write-quiescence.
 
 ### Provider migration (move from one KMS to another)
 
