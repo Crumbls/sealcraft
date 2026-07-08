@@ -40,7 +40,10 @@ use Crumbls\Sealcraft\Tests\Fixtures\Readme\Patient;
 use Crumbls\Sealcraft\Tests\Fixtures\Readme\VaultEntry;
 use Crumbls\Sealcraft\Values\EncryptionContext;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\ServiceProvider;
 
 beforeEach(function (): void {
     config()->set('sealcraft.default_provider', 'null');
@@ -68,8 +71,8 @@ it('onboards via sealcraft:install + sealcraft:verify in the documented order', 
 });
 
 it('publishes config and migrations under the documented tags', function (): void {
-    $configGroups = \Illuminate\Support\ServiceProvider::$publishGroups['sealcraft-config'] ?? [];
-    $migrationGroups = \Illuminate\Support\ServiceProvider::$publishGroups['sealcraft-migrations'] ?? [];
+    $configGroups = ServiceProvider::$publishGroups['sealcraft-config'] ?? [];
+    $migrationGroups = ServiceProvider::$publishGroups['sealcraft-migrations'] ?? [];
 
     expect($configGroups)->not->toBeEmpty()
         ->and(array_values($configGroups))->toContain(config_path('sealcraft.php'));
@@ -85,14 +88,14 @@ it('publishes config and migrations under the documented tags', function (): voi
 });
 
 it('runs the create_sealcraft_data_keys_table migration', function (): void {
-    expect(\Illuminate\Support\Facades\Schema::hasTable('sealcraft_data_keys'))->toBeTrue();
+    expect(Schema::hasTable('sealcraft_data_keys'))->toBeTrue();
 
     foreach ([
         'context_type', 'context_id', 'provider_name',
         'key_id', 'key_version', 'cipher', 'wrapped_dek',
         'created_at', 'rotated_at', 'retired_at', 'shredded_at',
     ] as $column) {
-        expect(\Illuminate\Support\Facades\Schema::hasColumn('sealcraft_data_keys', $column))
+        expect(Schema::hasColumn('sealcraft_data_keys', $column))
             ->toBeTrue("migration missing column: {$column}");
     }
 });
@@ -530,7 +533,7 @@ it('generate-dek provisions a DataKey for a context', function (): void {
 });
 
 it('backfill-row-keys fills empty row-key columns on legacy rows', function (): void {
-    \Illuminate\Support\Facades\DB::table('owned_users')->insert([
+    DB::table('owned_users')->insert([
         'email' => 'legacy@x',
         'sealcraft_key' => null,
     ]);
@@ -614,7 +617,7 @@ it('fires DecryptionFailed on a cross-tenant ciphertext swap', function (): void
 
     $aCiphertext = $a->getRawOriginal('body');
 
-    \Illuminate\Support\Facades\DB::table('readme_documents')
+    DB::table('readme_documents')
         ->where('id', $b->id)
         ->update(['body' => $aCiphertext]);
 
@@ -622,7 +625,7 @@ it('fires DecryptionFailed on a cross-tenant ciphertext swap', function (): void
 
     try {
         Document::query()->find($b->id)->body;
-    } catch (\Throwable) {
+    } catch (Throwable) {
         // expected — AAD mismatch
     }
 

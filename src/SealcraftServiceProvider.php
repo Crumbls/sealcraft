@@ -24,6 +24,9 @@ use Crumbls\Sealcraft\Services\ProviderRegistry;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\ConnectionResolverInterface;
+use Illuminate\Queue\Events\JobExceptionOccurred;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Support\ServiceProvider;
 
 class SealcraftServiceProvider extends ServiceProvider
@@ -100,7 +103,18 @@ class SealcraftServiceProvider extends ServiceProvider
 
     protected function registerMigrations(): void
     {
+        if ($this->hasPublishedDataKeysMigration()) {
+            return;
+        }
+
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+    }
+
+    protected function hasPublishedDataKeysMigration(): bool
+    {
+        $matches = glob(database_path('migrations/*_create_sealcraft_data_keys_table.php'));
+
+        return is_array($matches) && $matches !== [];
     }
 
     protected function registerPublishing(): void
@@ -140,9 +154,9 @@ class SealcraftServiceProvider extends ServiceProvider
             }
         };
 
-        $this->app['events']->listen(\Illuminate\Queue\Events\JobProcessed::class, $flush);
-        $this->app['events']->listen(\Illuminate\Queue\Events\JobFailed::class, $flush);
-        $this->app['events']->listen(\Illuminate\Queue\Events\JobExceptionOccurred::class, $flush);
+        $this->app['events']->listen(JobProcessed::class, $flush);
+        $this->app['events']->listen(JobFailed::class, $flush);
+        $this->app['events']->listen(JobExceptionOccurred::class, $flush);
     }
 
     protected function registerOctaneFlush(): void

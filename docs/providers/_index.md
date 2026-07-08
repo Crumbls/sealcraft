@@ -11,7 +11,7 @@ A KEK provider wraps and unwraps Data Encryption Keys using a backing key store 
 |---|---|---|
 | [AWS KMS](/documentation/sealcraft/v1/providers/aws-kms) | `aws_kms` | AWS Key Management Service |
 | [GCP Cloud KMS](/documentation/sealcraft/v1/providers/gcp-kms) | `gcp_kms` | Google Cloud KMS |
-| [Azure Key Vault](/documentation/sealcraft/v1/providers/azure-key-vault) | `azure_kv` | Azure Key Vault |
+| [Azure Key Vault](/documentation/sealcraft/v1/providers/azure-key-vault) | `azure_key_vault` | Azure Key Vault |
 | [HashiCorp Vault Transit](/documentation/sealcraft/v1/providers/vault-transit) | `vault_transit` | Vault Transit secrets engine |
 
 ## Non-production providers

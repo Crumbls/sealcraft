@@ -10,11 +10,13 @@ declare(strict_types=1);
  * Testbench laravel/ scratch directory, which this test cleans up.
  */
 
+use Crumbls\Sealcraft\SealcraftServiceProvider;
+use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\ServiceProvider;
 
 beforeEach(function (): void {
-    $publishMap = ServiceProvider::$publishes[\Crumbls\Sealcraft\SealcraftServiceProvider::class] ?? [];
+    $publishMap = ServiceProvider::$publishes[SealcraftServiceProvider::class] ?? [];
 
     $this->configDest = null;
     $this->migrationDest = null;
@@ -98,7 +100,7 @@ it('published migration is a valid anonymous-class Migration with an up() method
     ]);
 
     $migration = require $this->migrationDest;
-    expect($migration)->toBeInstanceOf(\Illuminate\Database\Migrations\Migration::class);
+    expect($migration)->toBeInstanceOf(Migration::class);
     expect(method_exists($migration, 'up'))->toBeTrue();
 });
 

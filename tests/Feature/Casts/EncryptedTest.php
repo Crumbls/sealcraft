@@ -6,6 +6,7 @@ use Crumbls\Sealcraft\Events\DecryptionFailed;
 use Crumbls\Sealcraft\Exceptions\DecryptionFailedException;
 use Crumbls\Sealcraft\Exceptions\InvalidContextException;
 use Crumbls\Sealcraft\Models\DataKey;
+use Crumbls\Sealcraft\Services\CipherRegistry;
 use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Tests\Fixtures\EncryptedDocument;
 use Crumbls\Sealcraft\Tests\Fixtures\EncryptedVaultEntry;
@@ -109,7 +110,7 @@ it('reports null from peekId for legacy plaintext so reencrypt commands can dete
         'note' => 'mailto:patient@example.com',
     ]);
 
-    $registry = $this->app->make(\Crumbls\Sealcraft\Services\CipherRegistry::class);
+    $registry = $this->app->make(CipherRegistry::class);
     $raw = DB::table('encrypted_documents')->where('id', 7778)->first();
 
     expect($registry->peekId($raw->secret))->toBeNull();

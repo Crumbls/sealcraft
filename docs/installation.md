@@ -17,15 +17,23 @@ weight: 20
 composer require crumbls/sealcraft
 ```
 
-## Publish config and migrations
+## Publish config
 
 ```bash
 php artisan vendor:publish --tag=sealcraft-config
+php artisan migrate
+```
+
+Sealcraft auto-loads its package migration when no published copy exists. The migration creates the `sealcraft_data_keys` table that stores wrapped DEKs -- one row per `(context_type, context_id)` pair (per-group strategy) or one row per record (per-row strategy).
+
+If your application requires owning every migration file, publish it too:
+
+```bash
 php artisan vendor:publish --tag=sealcraft-migrations
 php artisan migrate
 ```
 
-The migration creates the `sealcraft_data_keys` table that stores wrapped DEKs -- one row per `(context_type, context_id)` pair (per-group strategy) or one row per record (per-row strategy).
+When a published `*_create_sealcraft_data_keys_table.php` migration is present, the package skips auto-loading its internal copy so Laravel does not see two pending migrations for the same table.
 
 ## Install provider SDKs
 

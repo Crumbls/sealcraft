@@ -126,13 +126,13 @@ it('DecryptionFailed classifies the failure stage and omits plaintext', function
 
     try {
         EncryptedDocument::query()->find($b->id)->secret;
-    } catch (\Throwable) {
+    } catch (Throwable) {
         // expected
     }
 
     Event::assertDispatched(DecryptionFailed::class, function (DecryptionFailed $event): bool {
         // stage must be one of the documented values
         return in_array($event->stage, ['cipher', 'kek_unwrap', 'synthetic_aad'], true)
-            && $event->exception instanceof \Throwable;
+            && $event->exception instanceof Throwable;
     });
 });

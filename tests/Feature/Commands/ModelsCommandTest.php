@@ -5,7 +5,6 @@ declare(strict_types=1);
 use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Services\KeyManager;
 use Crumbls\Sealcraft\Tests\Fixtures\EncryptedDocument;
-use Crumbls\Sealcraft\Tests\Fixtures\EncryptedVaultEntry;
 use Crumbls\Sealcraft\Tests\Fixtures\OwnedUser;
 use Crumbls\Sealcraft\Values\EncryptionContext;
 use Illuminate\Support\Facades\Artisan;

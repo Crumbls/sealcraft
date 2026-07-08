@@ -8,7 +8,7 @@ Azure Key Vault uses `wrapKey` / `unwrapKey` which do not accept AAD at the KMS 
 ## Configure
 
 ```dotenv
-SEALCRAFT_PROVIDER=azure_kv
+SEALCRAFT_PROVIDER=azure_key_vault
 SEALCRAFT_AZURE_VAULT_URL=https://my-vault.vault.azure.net
 SEALCRAFT_AZURE_KEY_NAME=app-kek
 SEALCRAFT_AZURE_AAD_STRATEGY=synthetic
@@ -29,13 +29,14 @@ The synthetic strategy catches cross-context replay even if an attacker somehow 
 use Illuminate\Support\Facades\Config;
 
 Config::set([
-    'sealcraft.providers.azure_kv.token_resolver'     => fn () => Azure::kvToken(),
-    'sealcraft.providers.azure_kv.hmac_key_resolver'  => fn () => AzureSecretHelper::hmacKeyBytes(),
+    'sealcraft.providers.azure_key_vault.token_resolver' => fn () => Azure::kvToken(),
+    'sealcraft.providers.azure_key_vault.hmac_key_resolver' => fn () => AzureSecretHelper::hmacKeyBytes(),
 ]);
 ```
 
 - `token_resolver` returns a bearer token for `https://vault.azure.net/.default`. Use managed identity if possible.
 - `hmac_key_resolver` returns 32+ raw bytes used to derive the synthetic AAD HMAC. Store this as a separate Key Vault secret; rotating it invalidates all existing wrapped DEKs so coordinate with a DEK rotation if you rotate it deliberately.
+- With `validate_on_boot=true`, both resolvers must be bound before the package boots when `synthetic` AAD is selected. If you choose `cipher_only`, the HMAC resolver is not required.
 
 ## Permissions
 

@@ -11,8 +11,11 @@ declare(strict_types=1);
  * quietly change in a refactor.
  */
 
+use Crumbls\Sealcraft\Casts\Encrypted;
+use Crumbls\Sealcraft\Concerns\HasEncryptedAttributes;
 use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Tests\Fixtures\EncryptedDocument;
+use Illuminate\Database\Eloquent\Model;
 
 beforeEach(function (): void {
     config()->set('sealcraft.default_provider', 'null');
@@ -35,8 +38,9 @@ it('toArray() decrypts encrypted attributes (transparent-cast behavior)', functi
 });
 
 it('honors $hidden to suppress encrypted attributes from toArray/toJson', function (): void {
-    $doc = new class extends \Illuminate\Database\Eloquent\Model {
-        use \Crumbls\Sealcraft\Concerns\HasEncryptedAttributes;
+    $doc = new class extends Model
+    {
+        use HasEncryptedAttributes;
 
         protected $table = 'encrypted_documents';
 
@@ -47,7 +51,7 @@ it('honors $hidden to suppress encrypted attributes from toArray/toJson', functi
         protected $hidden = ['secret'];
 
         protected $casts = [
-            'secret' => \Crumbls\Sealcraft\Casts\Encrypted::class,
+            'secret' => Encrypted::class,
         ];
     };
 

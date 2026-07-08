@@ -8,6 +8,7 @@ use Crumbls\Sealcraft\Exceptions\InvalidContextException;
 use Crumbls\Sealcraft\Models\DataKey;
 use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Tests\Fixtures\EncryptedDocument;
+use Crumbls\Sealcraft\Tests\Fixtures\Unified\UnifiedPatient;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function (): void {
@@ -48,6 +49,54 @@ it('auto re-encrypts every encrypted column when context changes', function (): 
 
     Event::assertDispatched(ContextReencrypting::class);
     Event::assertDispatched(ContextReencrypted::class);
+});
+
+it('preserves newly assigned encrypted values while changing context', function (): void {
+    $doc = EncryptedDocument::query()->create([
+        'tenant_id' => 42,
+        'secret' => 'original-secret',
+        'note' => 'original-note',
+    ]);
+
+    expect($doc->secret)->toBe('original-secret');
+
+    $doc->tenant_id = 99;
+    $doc->secret = 'updated-during-move';
+    $doc->save();
+
+    $this->app->make(DekCache::class)->flush();
+
+    $fresh = EncryptedDocument::query()->find($doc->id);
+    expect($fresh->tenant_id)->toBe(99);
+    expect($fresh->secret)->toBe('updated-during-move');
+    expect($fresh->note)->toBe('original-note');
+});
+
+it('re-encrypts encrypted json columns when context changes', function (): void {
+    $patient = UnifiedPatient::query()->create([
+        'patient_id' => 42,
+        'employer_id' => 9,
+        'ssn' => '111-22-3333',
+        'history' => [
+            'diagnosis' => 'hypertension',
+            'visits' => [
+                ['note' => 'annual physical'],
+            ],
+        ],
+    ]);
+
+    $oldRaw = $patient->getRawOriginal('history');
+
+    $patient->patient_id = 99;
+    $patient->save();
+
+    expect($patient->getRawOriginal('history'))->not->toBe($oldRaw);
+
+    $this->app->make(DekCache::class)->flush();
+
+    $fresh = UnifiedPatient::query()->find($patient->id);
+    expect($fresh->history['diagnosis'])->toBe('hypertension');
+    expect($fresh->history['visits'][0]['note'])->toBe('annual physical');
 });
 
 it('fires a new DataKey creation on the new tenant during reencrypt', function (): void {

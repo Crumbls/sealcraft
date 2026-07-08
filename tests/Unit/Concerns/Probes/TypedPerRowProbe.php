@@ -14,8 +14,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class TypedPerRowProbe extends Model
 {
-    use HasEncryptedAttributes;
     use ExposesProtectedResolvers;
+    use HasEncryptedAttributes;
 
     public $timestamps = false;
 

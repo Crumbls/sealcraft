@@ -12,7 +12,7 @@ trait ResolvesEncryptionContext
     {
         return new EncryptionContext(
             contextType: $type,
-            contextId: is_numeric($id) && ctype_digit((string) $id) ? (int) $id : (string) $id,
+            contextId: (string) $id,
         );
     }
 }

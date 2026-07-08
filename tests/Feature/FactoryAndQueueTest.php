@@ -34,7 +34,8 @@ beforeEach(function (): void {
 });
 
 it('Eloquent factory create() persists ciphertext and reads back plaintext', function (): void {
-    $factory = new class extends Factory {
+    $factory = new class extends Factory
+    {
         protected $model = EncryptedDocument::class;
 
         public function definition(): array
@@ -58,7 +59,8 @@ it('Eloquent factory create() persists ciphertext and reads back plaintext', fun
 });
 
 it('factory->count(N) creates N independent encrypted rows', function (): void {
-    $factory = new class extends Factory {
+    $factory = new class extends Factory
+    {
         protected $model = EncryptedDocument::class;
 
         public function definition(): array
@@ -81,7 +83,8 @@ it('factory->count(N) creates N independent encrypted rows', function (): void {
 });
 
 it('per-row factory rows each get their own sealcraft_key and DEK', function (): void {
-    $factory = new class extends Factory {
+    $factory = new class extends Factory
+    {
         protected $model = OwnedUser::class;
 
         public function definition(): array

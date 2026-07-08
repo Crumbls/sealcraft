@@ -12,8 +12,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class PerGroupProbe extends Model
 {
-    use HasEncryptedAttributes;
     use ExposesProtectedResolvers;
+    use HasEncryptedAttributes;
 
     public $timestamps = false;
 

@@ -10,11 +10,13 @@ declare(strict_types=1);
  */
 
 use Crumbls\Sealcraft\Casts\Encrypted;
+use Crumbls\Sealcraft\Exceptions\DecryptionFailedException;
 use Crumbls\Sealcraft\Exceptions\InvalidContextException;
 use Crumbls\Sealcraft\Exceptions\SealcraftException;
 use Crumbls\Sealcraft\Models\DataKey;
 use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Tests\Fixtures\Unified\UnifiedPatient;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function (): void {
     config()->set('sealcraft.default_provider', 'null');
@@ -84,7 +86,7 @@ it('cast-override ciphertext cannot be decrypted with the model-level DEK (prove
     $patientCtCol = $patient->getRawOriginal('ssn');
     $employerCtCol = $patient->getRawOriginal('work_notes');
 
-    \Illuminate\Support\Facades\DB::table('unified_patients')
+    DB::table('unified_patients')
         ->where('id', $patient->id)
         ->update(['ssn' => $employerCtCol]);
 
@@ -92,7 +94,7 @@ it('cast-override ciphertext cannot be decrypted with the model-level DEK (prove
 
     // Reading ssn (uses patient DEK) with the employer-bound ciphertext fails
     expect(fn () => UnifiedPatient::query()->find($patient->id)->ssn)
-        ->toThrow(\Crumbls\Sealcraft\Exceptions\DecryptionFailedException::class);
+        ->toThrow(DecryptionFailedException::class);
 });
 
 it('cast parameter override raises InvalidContext when the override column is empty', function (): void {
@@ -127,7 +129,7 @@ it('ignores unrecognized cast parameter keys gracefully', function (): void {
 it('discovers cast-parameterized columns in sealcraftEncryptedAttributes()', function (): void {
     $patient = new UnifiedPatient;
 
-    $encrypted = \Closure::bind(fn () => $patient->sealcraftEncryptedAttributes(), $patient, UnifiedPatient::class)();
+    $encrypted = Closure::bind(fn () => $patient->sealcraftEncryptedAttributes(), $patient, UnifiedPatient::class)();
 
     expect($encrypted)->toContain('ssn');
     expect($encrypted)->toContain('history');

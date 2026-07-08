@@ -24,16 +24,16 @@ final class AuditCommand extends Command
         $query = DataKey::query();
 
         if (is_string($this->option('provider'))) {
-            $query->forProvider((string) $this->option('provider'));
+            $query->where('provider_name', (string) $this->option('provider'));
         }
 
         if (is_string($this->option('context-type'))) {
             $query->where('context_type', (string) $this->option('context-type'));
         }
 
-        $active = (clone $query)->active()->count();
-        $retired = (clone $query)->retired()->whereNull('shredded_at')->count();
-        $shredded = (clone $query)->shredded()->count();
+        $active = (clone $query)->whereNull('retired_at')->count();
+        $retired = (clone $query)->whereNotNull('retired_at')->whereNull('shredded_at')->count();
+        $shredded = (clone $query)->whereNotNull('shredded_at')->count();
 
         $this->line(str_pad('Active DEKs', 32) . ": {$active}");
         $this->line(str_pad('Retired (rotated) DEKs', 32) . ": {$retired}");
@@ -49,7 +49,7 @@ final class AuditCommand extends Command
 
         $this->line('');
         $this->info('KEK version distribution (active only):');
-        $byVersion = (clone $query)->active()
+        $byVersion = (clone $query)->whereNull('retired_at')
             ->selectRaw('coalesce(key_version, "-") as v, count(*) as n')
             ->groupBy('v')
             ->pluck('n', 'v');
@@ -67,29 +67,27 @@ final class AuditCommand extends Command
 
         $failures = 0;
 
-        (clone $query)->active()->chunkById(100, function ($rows) use ($manager, &$failures): void {
-            foreach ($rows as $dataKey) {
-                /** @var DataKey $dataKey */
-                $ctx = new EncryptionContext(
-                    contextType: $dataKey->context_type,
-                    contextId: is_numeric($dataKey->context_id) && ctype_digit($dataKey->context_id)
-                        ? (int) $dataKey->context_id
-                        : $dataKey->context_id,
-                );
+        $roundtripQuery = clone $query;
+        $roundtripQuery->whereNull('retired_at');
 
-                try {
-                    $plaintext = $manager->getOrCreateDek($ctx);
+        foreach ($roundtripQuery->getModels() as $dataKey) {
+            $ctx = new EncryptionContext(
+                contextType: $dataKey->context_type,
+                contextId: $dataKey->context_id,
+            );
 
-                    if (strlen($plaintext) === 0) {
-                        $failures++;
-                        $this->warn("  [{$dataKey->context_type}:{$dataKey->context_id}] unwrapped to empty bytes");
-                    }
-                } catch (Throwable $e) {
+            try {
+                $plaintext = $manager->getOrCreateDek($ctx);
+
+                if (strlen($plaintext) === 0) {
                     $failures++;
-                    $this->warn("  [{$dataKey->context_type}:{$dataKey->context_id}] unwrap failed: " . $e->getMessage());
+                    $this->warn("  [{$dataKey->context_type}:{$dataKey->context_id}] unwrapped to empty bytes");
                 }
+            } catch (Throwable $e) {
+                $failures++;
+                $this->warn("  [{$dataKey->context_type}:{$dataKey->context_id}] unwrap failed: " . $e->getMessage());
             }
-        });
+        }
 
         if ($failures === 0) {
             $this->info('All active DataKeys unwrapped successfully.');

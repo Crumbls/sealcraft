@@ -18,9 +18,9 @@ function validConfig(array $overrides = []): array
             'local' => ['driver' => 'local', 'key_path' => '/tmp/kek'],
             'null' => ['driver' => 'null'],
             'aws_kms' => ['driver' => 'aws_kms', 'key_id' => 'alias/x', 'region' => 'us-east-1'],
-            'gcp_kms' => ['driver' => 'gcp_kms', 'project' => 'p', 'location' => 'l', 'key_ring' => 'r', 'crypto_key' => 'k'],
-            'azure_key_vault' => ['driver' => 'azure_key_vault', 'vault_url' => 'https://v', 'key_name' => 'k'],
-            'vault_transit' => ['driver' => 'vault_transit', 'address' => 'https://v', 'key_name' => 'k'],
+            'gcp_kms' => ['driver' => 'gcp_kms', 'project' => 'p', 'location' => 'l', 'key_ring' => 'r', 'crypto_key' => 'k', 'token_resolver' => fn (): string => 'token'],
+            'azure_key_vault' => ['driver' => 'azure_key_vault', 'vault_url' => 'https://v', 'key_name' => 'k', 'token_resolver' => fn (): string => 'token', 'hmac_key_resolver' => fn (): string => random_bytes(32)],
+            'vault_transit' => ['driver' => 'vault_transit', 'address' => 'https://v', 'key_name' => 'k', 'token' => 'token'],
         ],
         'ciphers' => [
             'aes-256-gcm' => ['driver' => 'aes-256-gcm'],
@@ -149,6 +149,55 @@ it('points at Vault env vars when Vault Transit is missing required fields', fun
 it('skips credential validation for local/null/config drivers', function (): void {
     ConfigValidator::validate(validConfig(['default_provider' => 'local']));
     ConfigValidator::validate(validConfig(['default_provider' => 'null']));
+
+    expect(true)->toBeTrue();
+});
+
+it('requires a token resolver or static token for HTTP providers', function (): void {
+    expect(fn () => ConfigValidator::validate(validConfig([
+        'default_provider' => 'gcp_kms',
+        'providers' => [
+            'gcp_kms' => [
+                'driver' => 'gcp_kms',
+                'project' => 'p',
+                'location' => 'l',
+                'key_ring' => 'r',
+                'crypto_key' => 'k',
+                'token_resolver' => null,
+            ],
+        ],
+    ])))->toThrow(SealcraftException::class, 'token_resolver');
+});
+
+it('requires an hmac resolver for Azure synthetic AAD', function (): void {
+    expect(fn () => ConfigValidator::validate(validConfig([
+        'default_provider' => 'azure_key_vault',
+        'providers' => [
+            'azure_key_vault' => [
+                'driver' => 'azure_key_vault',
+                'vault_url' => 'https://v',
+                'key_name' => 'k',
+                'token_resolver' => fn (): string => 'token',
+                'hmac_key_resolver' => null,
+                'aad_strategy' => 'synthetic',
+            ],
+        ],
+    ])))->toThrow(SealcraftException::class, 'hmac_key_resolver');
+});
+
+it('allows Azure cipher_only without an hmac resolver', function (): void {
+    ConfigValidator::validate(validConfig([
+        'default_provider' => 'azure_key_vault',
+        'providers' => [
+            'azure_key_vault' => [
+                'driver' => 'azure_key_vault',
+                'vault_url' => 'https://v',
+                'key_name' => 'k',
+                'token_resolver' => fn (): string => 'token',
+                'aad_strategy' => 'cipher_only',
+            ],
+        ],
+    ]));
 
     expect(true)->toBeTrue();
 });

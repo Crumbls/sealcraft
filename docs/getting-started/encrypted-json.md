@@ -31,7 +31,7 @@ $patient->history = [
 
 ## What gets encrypted
 
-On disk the column is still valid JSON. Every **string leaf** is individually encrypted under the same DEK as the row's scalar `Encrypted` columns. Keys, nesting, and non-string scalars (ints, floats, bools, nulls) stay readable.
+On disk the column is still valid JSON. Every **non-empty string leaf** is individually encrypted under the same DEK as the row's scalar `Encrypted` columns. Keys, nesting, empty strings, and non-string scalars (ints, floats, bools, nulls) stay readable.
 
 On read, leaves that carry a cipher prefix are decrypted. Strings without a prefix pass through unchanged, so a column can safely mix plaintext shape data with encrypted leaves -- useful during migration.
 
@@ -39,9 +39,10 @@ On read, leaves that carry a cipher prefix are decrypted. Strings without a pref
 
 - You need PHI values protected but your tooling queries the JSON by key (Postgres `->>`, MySQL `JSON_EXTRACT`)
 - You have a legacy column that already contains JSON and you want to opt individual values into encryption without restructuring the column
-- You want per-value crypto-shred granularity within a larger record
+- You accept that JSON keys and non-string scalar values remain visible in the database
 
 ## When not to use it
 
-- The entire column is sensitive -- use scalar `Encrypted` and serialize yourself; it is simpler and has less overhead
+- The entire column is sensitive -- use scalar `Encrypted` and serialize the whole JSON document yourself; it is simpler, hides keys and non-string values, and has less overhead
 - You need to query on the encrypted values -- the plaintext is never in the column, so indexes on leaf values see only ciphertext
+- You need leaf-level crypto-shred -- `EncryptedJson` uses the same DEK for every encrypted leaf in the context

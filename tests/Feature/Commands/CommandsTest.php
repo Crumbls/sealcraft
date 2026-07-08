@@ -9,9 +9,11 @@ use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Services\KeyManager;
 use Crumbls\Sealcraft\Services\ProviderRegistry;
 use Crumbls\Sealcraft\Tests\Fixtures\EncryptedDocument;
+use Crumbls\Sealcraft\Tests\Fixtures\OwnedRecord;
 use Crumbls\Sealcraft\Tests\Fixtures\OwnedUser;
 use Crumbls\Sealcraft\Values\EncryptionContext;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function (): void {
@@ -31,6 +33,17 @@ it('generate-dek creates a new DataKey for a context', function (): void {
 
     expect($code)->toBe(0);
     expect(DataKey::query()->forContext('tenant', '42')->active()->count())->toBe(1);
+});
+
+it('generate-dek preserves string context identifiers exactly', function (): void {
+    $code = Artisan::call('sealcraft:generate-dek', [
+        'context_type' => 'patient',
+        'context_id' => '00123',
+    ]);
+
+    expect($code)->toBe(0);
+    expect(DataKey::query()->forContext('patient', '00123')->active()->count())->toBe(1);
+    expect(DataKey::query()->forContext('patient', '123')->active()->count())->toBe(0);
 });
 
 it('generate-dek fails if a DataKey already exists', function (): void {
@@ -144,6 +157,66 @@ it('rotate-dek re-encrypts model rows under a fresh DEK', function (): void {
     $fresh = OwnedUser::query()->find($user->id);
     expect($fresh->getRawOriginal('ssn'))->not->toBe($originalCiphertext);
     expect($fresh->ssn)->toBe('111-22-3333');
+});
+
+it('rotate-dek rolls back row rewrites when any row fails', function (): void {
+    $first = EncryptedDocument::query()->create([
+        'tenant_id' => 42,
+        'secret' => 'first-secret',
+    ]);
+    $second = EncryptedDocument::query()->create([
+        'tenant_id' => 42,
+        'secret' => 'second-secret',
+    ]);
+
+    $firstRaw = $first->getRawOriginal('secret');
+    $activeDataKeyId = DataKey::query()->forContext('tenant', '42')->active()->value('id');
+
+    DB::table('encrypted_documents')
+        ->where('id', $second->id)
+        ->update(['secret' => 'corrupted legacy plaintext']);
+
+    $code = Artisan::call('sealcraft:rotate-dek', [
+        'model' => EncryptedDocument::class,
+        'context_type' => 'tenant',
+        'context_id' => '42',
+        '--without-delegated-discovery' => true,
+    ]);
+
+    expect($code)->toBe(1);
+    expect(DataKey::query()->forContext('tenant', '42')->active()->value('id'))->toBe($activeDataKeyId);
+    expect(DataKey::query()->forContext('tenant', '42')->retired()->count())->toBe(0);
+    expect(EncryptedDocument::query()->find($first->id)->getRawOriginal('secret'))->toBe($firstRaw);
+
+    $this->app->make(DekCache::class)->flush();
+
+    expect(EncryptedDocument::query()->find($first->id)->secret)->toBe('first-secret');
+});
+
+it('rotate-dek re-encrypts delegated related rows discovered for the same context', function (): void {
+    $user = OwnedUser::query()->create(['email' => 'e@x', 'ssn' => '111-22-3333']);
+    $record = OwnedRecord::query()->create([
+        'owned_user_id' => $user->id,
+        'body' => 'delegated clinical note',
+    ]);
+
+    $recordRaw = $record->getRawOriginal('body');
+    $morph = (new OwnedUser)->getMorphClass();
+
+    $code = Artisan::call('sealcraft:rotate-dek', [
+        'model' => OwnedUser::class,
+        'context_type' => $morph,
+        'context_id' => $user->sealcraft_key,
+        '--scan-path' => [__DIR__ . '/../../Fixtures'],
+    ]);
+
+    expect($code)->toBe(0);
+    expect(OwnedRecord::query()->find($record->id)->getRawOriginal('body'))->not->toBe($recordRaw);
+
+    $this->app->make(DekCache::class)->flush();
+
+    expect(OwnedUser::query()->find($user->id)->ssn)->toBe('111-22-3333');
+    expect(OwnedRecord::query()->find($record->id)->body)->toBe('delegated clinical note');
 });
 
 it('migrate-provider relocates DataKeys between providers', function (): void {

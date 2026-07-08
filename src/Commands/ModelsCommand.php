@@ -10,7 +10,6 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
 use ReflectionClass;
 use Symfony\Component\Finder\Finder;
-use Throwable;
 
 /**
  * Scan the application for Eloquent models using HasEncryptedAttributes
@@ -68,7 +67,7 @@ final class ModelsCommand extends Command
         $explicit = (array) $this->option('path');
 
         if ($explicit !== []) {
-            return array_values(array_filter(array_map(static fn ($p) => is_string($p) ? $p : null, $explicit)));
+            return array_values(array_filter($explicit, static fn (string $path): bool => $path !== ''));
         }
 
         $base = base_path();
@@ -79,7 +78,7 @@ final class ModelsCommand extends Command
 
     /**
      * @param  array<int, string>  $paths
-     * @return iterable<int, class-string>
+     * @return iterable<int, class-string<Model>>
      */
     private function discoverModels(array $paths): iterable
     {
@@ -101,11 +100,7 @@ final class ModelsCommand extends Command
                 continue;
             }
 
-            try {
-                $reflection = new ReflectionClass($class);
-            } catch (Throwable) {
-                continue;
-            }
+            $reflection = new ReflectionClass($class);
 
             if ($reflection->isAbstract() || ! $reflection->isSubclassOf(Model::class)) {
                 continue;
@@ -119,6 +114,9 @@ final class ModelsCommand extends Command
         }
     }
 
+    /**
+     * @return class-string|null
+     */
     private function classFromFile(string $path): ?string
     {
         $contents = @file_get_contents($path);
@@ -160,8 +158,8 @@ final class ModelsCommand extends Command
             : [];
 
         $activeDeks = $strategy === 'per_row'
-            ? DataKey::query()->where('context_type', $instance->getMorphClass())->active()->count()
-            : DataKey::query()->where('context_type', $contextType)->active()->count();
+            ? DataKey::queryActive()->where('context_type', $instance->getMorphClass())->count()
+            : DataKey::queryActive()->where('context_type', $contextType)->count();
 
         return [
             'model' => $class,
@@ -174,6 +172,9 @@ final class ModelsCommand extends Command
         ];
     }
 
+    /**
+     * @param  ReflectionClass<object>  $reflection
+     */
     private function resolvePropertyOrConfig(ReflectionClass $reflection, Model $instance, string $property, string $configKey, string $default): string
     {
         if ($reflection->hasProperty($property)) {
@@ -191,6 +192,9 @@ final class ModelsCommand extends Command
         return is_string($configured) && $configured !== '' ? $configured : $default;
     }
 
+    /**
+     * @param  ReflectionClass<object>  $reflection
+     */
     private function resolvePropertyDefault(ReflectionClass $reflection, Model $instance, string $property, string $default): string
     {
         if ($reflection->hasProperty($property)) {

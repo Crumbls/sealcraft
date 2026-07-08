@@ -11,11 +11,13 @@ declare(strict_types=1);
  */
 
 use Crumbls\Sealcraft\Exceptions\DecryptionFailedException;
+use Crumbls\Sealcraft\Exceptions\InvalidContextException;
 use Crumbls\Sealcraft\Exceptions\SealcraftException;
 use Crumbls\Sealcraft\Services\CipherRegistry;
 use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Services\ProviderRegistry;
 use Crumbls\Sealcraft\Tests\Fixtures\EncryptedDocument;
+use Crumbls\Sealcraft\Tests\Fixtures\OwnedUser;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function (): void {
@@ -110,17 +112,17 @@ it('Encrypted cast guides the caller toward the legacy migration path when it hi
 });
 
 it('HasEncryptedAttributes per-row empty-key error names the backfill command', function (): void {
-    \Illuminate\Support\Facades\DB::table('owned_users')->insert([
+    DB::table('owned_users')->insert([
         'id' => 5001,
         'email' => 'empty-key@x',
         'sealcraft_key' => null,
     ]);
 
-    $user = \Crumbls\Sealcraft\Tests\Fixtures\OwnedUser::query()->find(5001);
+    $user = OwnedUser::query()->find(5001);
 
     try {
         $user->sealcraftContext();
-    } catch (\Crumbls\Sealcraft\Exceptions\InvalidContextException $e) {
+    } catch (InvalidContextException $e) {
         expect($e->getMessage())->toContain('sealcraft:backfill-row-keys');
 
         return;

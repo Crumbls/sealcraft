@@ -43,6 +43,12 @@ The `OwnedUser` is the root -- its per-row DEK encrypts its own columns. `OwnedR
 
 The `sealcraftContext()` method override takes precedence over the `$sealcraft` array, so delegated models don't need (and shouldn't set) their own `$sealcraft` config — the method is the whole story.
 
+## Rotating delegated data
+
+DEK rotation must rewrite every table that uses the delegated context, not just the owner table. `sealcraft:rotate-dek` scans discovered Sealcraft models by default and includes rows whose `sealcraftContext()` resolves to the same context. For large applications, pass `--scan-path=app/Models` (or more specific paths) so discovery stays bounded.
+
+Use `--without-delegated-discovery` only when the context is used by the named model table and nowhere else. See [DEK rotation](/documentation/sealcraft/v1/key-management/dek-rotation) for the command details.
+
 ## Right-to-be-forgotten in one shred
 
 ```bash

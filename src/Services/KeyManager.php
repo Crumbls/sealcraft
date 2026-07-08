@@ -19,6 +19,8 @@ use Crumbls\Sealcraft\Values\EncryptionContext;
 use Crumbls\Sealcraft\Values\WrappedDek;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\ConnectionResolverInterface;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Throwable;
@@ -51,9 +53,7 @@ final class KeyManager
             return $cached;
         }
 
-        $dataKey = DataKey::query()
-            ->forContext($ctx->contextType, $ctx->contextId)
-            ->active()
+        $dataKey = DataKey::queryActiveForContext($ctx->contextType, $ctx->contextId)
             ->first();
 
         if ($dataKey instanceof DataKey) {
@@ -80,44 +80,50 @@ final class KeyManager
 
         $connection = $this->db->connection();
 
-        return $connection->transaction(function () use ($ctx, $provider, $providerName, $cipher, $cipherName): DataKey {
-            $existing = DataKey::query()
-                ->forContext($ctx->contextType, $ctx->contextId)
-                ->active()
-                ->lockForUpdate()
-                ->first();
+        try {
+            return $connection->transaction(function () use ($ctx, $provider, $providerName, $cipher, $cipherName): DataKey {
+                $existing = DataKey::queryActiveForContext($ctx->contextType, $ctx->contextId)
+                    ->lockForUpdate()
+                    ->first();
 
-            if ($existing instanceof DataKey) {
-                throw new SealcraftException(
-                    "An active DEK already exists for context [{$ctx->contextType}:{$ctx->contextId}]."
-                );
-            }
+                if ($existing instanceof DataKey) {
+                    throw new SealcraftException(
+                        "An active DEK already exists for context [{$ctx->contextType}:{$ctx->contextId}]."
+                    );
+                }
 
-            if ($provider instanceof GeneratesDataKeys) {
-                $pair = $provider->generateDataKey($ctx, $cipher->keyBytes());
-                $plaintext = $pair->plaintext;
-                $wrapped = $pair->wrapped;
-            } else {
-                $plaintext = random_bytes($cipher->keyBytes());
-                $wrapped = $provider->wrap($plaintext, $ctx);
-            }
+                if ($provider instanceof GeneratesDataKeys) {
+                    $pair = $provider->generateDataKey($ctx, $cipher->keyBytes());
+                    $plaintext = $pair->plaintext;
+                    $wrapped = $pair->wrapped;
+                } else {
+                    $plaintext = random_bytes($cipher->keyBytes());
+                    $wrapped = $provider->wrap($plaintext, $ctx);
+                }
 
-            $dataKey = DataKey::query()->create([
-                'context_type' => $ctx->contextType,
-                'context_id' => (string) $ctx->contextId,
-                'provider_name' => $providerName,
-                'key_id' => $wrapped->keyId,
-                'key_version' => $wrapped->keyVersion,
-                'cipher' => $cipherName,
-                'wrapped_dek' => $wrapped->toStorageString(),
-            ]);
+                $dataKey = DataKey::query()->create([
+                    'context_type' => $ctx->contextType,
+                    'context_id' => (string) $ctx->contextId,
+                    'active_context_hash' => DataKey::activeContextHash($ctx->contextType, $ctx->contextId),
+                    'provider_name' => $providerName,
+                    'key_id' => $wrapped->keyId,
+                    'key_version' => $wrapped->keyVersion,
+                    'cipher' => $cipherName,
+                    'wrapped_dek' => $wrapped->toStorageString(),
+                ]);
 
-            $this->cache->put($ctx, $plaintext, $dataKey);
+                $this->cache->put($ctx, $plaintext, $dataKey);
 
-            Event::dispatch(new DekCreated($dataKey, $ctx, $providerName));
+                Event::dispatch(new DekCreated($dataKey, $ctx, $providerName));
 
-            return $dataKey;
-        });
+                return $dataKey;
+            });
+        } catch (QueryException $e) {
+            throw new SealcraftException(
+                "An active DEK already exists for context [{$ctx->contextType}:{$ctx->contextId}].",
+                previous: $e,
+            );
+        }
     }
 
     /**
@@ -130,14 +136,12 @@ final class KeyManager
         $connection = $this->db->connection();
 
         return $connection->transaction(function () use ($ctx): int {
-            $query = DataKey::query()
-                ->forContext($ctx->contextType, $ctx->contextId)
-                ->active()
-                ->lockForUpdate();
+            $query = DataKey::queryActiveForContext($ctx->contextType, $ctx->contextId);
+            $query->lockForUpdate();
 
             $count = 0;
 
-            $query->each(function (DataKey $dataKey) use ($ctx, &$count): void {
+            foreach ($query->getModels() as $dataKey) {
                 $provider = $this->providers->provider($dataKey->provider_name);
                 $wrapped = WrappedDek::fromStorageString($dataKey->wrapped_dek);
 
@@ -162,7 +166,7 @@ final class KeyManager
                 ));
 
                 $count++;
-            });
+            }
 
             $this->cache->forget($ctx);
 
@@ -172,7 +176,8 @@ final class KeyManager
 
     public function retireDek(DataKey $dataKey): void
     {
-        $dataKey->fill(['retired_at' => now()])->save();
+        $dataKey->markRetired();
+        $dataKey->save();
     }
 
     /**
@@ -188,9 +193,7 @@ final class KeyManager
             return $cached;
         }
 
-        $existing = DataKey::query()
-            ->forContext($ctx->contextType, $ctx->contextId)
-            ->active()
+        $existing = DataKey::queryActiveForContext($ctx->contextType, $ctx->contextId)
             ->first();
 
         if ($existing instanceof DataKey) {
@@ -223,9 +226,7 @@ final class KeyManager
         $connection = $this->db->connection();
 
         $connection->transaction(function () use ($ctx): void {
-            $active = DataKey::query()
-                ->forContext($ctx->contextType, $ctx->contextId)
-                ->active()
+            $active = DataKey::queryActiveForContext($ctx->contextType, $ctx->contextId)
                 ->lockForUpdate()
                 ->first();
 
@@ -236,12 +237,11 @@ final class KeyManager
                 return;
             }
 
-            $now = now();
+            $now = Carbon::now();
 
-            $active->fill([
-                'retired_at' => $now,
-                'shredded_at' => $now,
-            ])->save();
+            $active->markRetired($now);
+            $active->shredded_at = $now;
+            $active->save();
 
             $this->cache->forget($ctx);
 
@@ -255,18 +255,15 @@ final class KeyManager
 
     public function isContextShredded(EncryptionContext $ctx): bool
     {
-        $active = DataKey::query()
-            ->forContext($ctx->contextType, $ctx->contextId)
-            ->active()
+        $active = DataKey::queryActiveForContext($ctx->contextType, $ctx->contextId)
             ->exists();
 
         if ($active) {
             return false;
         }
 
-        return DataKey::query()
-            ->forContext($ctx->contextType, $ctx->contextId)
-            ->shredded()
+        return DataKey::queryForContext($ctx->contextType, $ctx->contextId)
+            ->whereNotNull('shredded_at')
             ->exists();
     }
 
@@ -294,10 +291,8 @@ final class KeyManager
         $connection = $this->db->connection();
 
         return $connection->transaction(function () use ($ctx, $fromProvider, $toProvider): DataKey {
-            $current = DataKey::query()
-                ->forContext($ctx->contextType, $ctx->contextId)
-                ->forProvider($fromProvider)
-                ->active()
+            $current = DataKey::queryActiveForContext($ctx->contextType, $ctx->contextId)
+                ->where('provider_name', $fromProvider)
                 ->lockForUpdate()
                 ->first();
 
@@ -315,11 +310,13 @@ final class KeyManager
 
             $rewrapped = $target->wrap($plaintext, $ctx);
 
-            $current->fill(['retired_at' => now()])->save();
+            $current->markRetired();
+            $current->save();
 
             $fresh = DataKey::query()->create([
                 'context_type' => $ctx->contextType,
                 'context_id' => (string) $ctx->contextId,
+                'active_context_hash' => DataKey::activeContextHash($ctx->contextType, $ctx->contextId),
                 'provider_name' => $toProvider,
                 'key_id' => $rewrapped->keyId,
                 'key_version' => $rewrapped->keyVersion,

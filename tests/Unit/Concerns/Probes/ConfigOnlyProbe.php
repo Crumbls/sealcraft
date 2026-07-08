@@ -13,8 +13,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class ConfigOnlyProbe extends Model
 {
-    use HasEncryptedAttributes;
     use ExposesProtectedResolvers;
+    use HasEncryptedAttributes;
 
     public $timestamps = false;
 }

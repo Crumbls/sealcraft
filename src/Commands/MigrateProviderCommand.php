@@ -41,7 +41,7 @@ final class MigrateProviderCommand extends Command
             return self::FAILURE;
         }
 
-        $query = DataKey::query()->active()->forProvider($from);
+        $query = DataKey::queryActive()->where('provider_name', $from);
 
         if (is_string($this->option('context-type'))) {
             $query->where('context_type', (string) $this->option('context-type'));

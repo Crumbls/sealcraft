@@ -12,9 +12,10 @@ return [
     'default_provider' => env('SEALCRAFT_PROVIDER', 'local'),
     'default_cipher'   => env('SEALCRAFT_CIPHER', 'aes-256-gcm'),
     'dek_strategy'     => env('SEALCRAFT_DEK_STRATEGY', 'per_group'),
-    'context_column'   => env('SEALCRAFT_CONTEXT_COLUMN', 'id'),
-    'context_type'     => env('SEALCRAFT_CONTEXT_TYPE', null),
+    'context_column'   => env('SEALCRAFT_CONTEXT_COLUMN', 'tenant_id'),
+    'context_type'     => env('SEALCRAFT_CONTEXT_TYPE', 'tenant'),
     'auto_reencrypt_on_context_change' => env('SEALCRAFT_AUTO_REENCRYPT', true),
+    'validate_on_boot' => env('SEALCRAFT_VALIDATE_ON_BOOT', true),
     // ...
 ];
 ```
@@ -24,9 +25,10 @@ return [
 | `default_provider` | KEK provider name | `local` |
 | `default_cipher` | `aes-256-gcm` or `xchacha20` | `aes-256-gcm` |
 | `dek_strategy` | `per_group` or `per_row` | `per_group` |
-| `context_column` | Default context column for per-group models | `id` |
-| `context_type` | Default context type string | null (uses table name) |
+| `context_column` | Default context column for per-group models | `tenant_id` |
+| `context_type` | Default context type string | `tenant` |
 | `auto_reencrypt_on_context_change` | Auto re-encrypt when a context column changes | `true` |
+| `validate_on_boot` | Fail fast on invalid provider/cipher config during boot | `true` |
 
 Any of these can be overridden per model by setting the matching property on the model class (e.g. `$sealcraftStrategy`).
 
@@ -34,7 +36,7 @@ Any of these can be overridden per model by setting the matching property on the
 
 ```php
 'rate_limit' => [
-    'unwrap_per_minute' => env('SEALCRAFT_UNWRAP_RATE', 0),
+    'unwrap_per_minute' => env('SEALCRAFT_UNWRAP_RPM', 1000),
 ],
 ```
 
@@ -47,8 +49,10 @@ Each provider has its own block. The most relevant keys for production providers
 - **AWS KMS**: `key_id`, `region`
 - **GCP Cloud KMS**: `project`, `location`, `key_ring`, `crypto_key`, `token_resolver`
 - **Azure Key Vault**: `vault_url`, `key_name`, `aad_strategy`, `token_resolver`, `hmac_key_resolver`
-- **Vault Transit**: `addr`, `token`, `key_name`, `mount`, `token_resolver`
-- **Local**: `path`, `allow_production`
+- **Vault Transit**: `address`, `token`, `key_name`, `mount`, `token_resolver`
+- **Local**: `key_path`, `allow_production`
+
+When `validate_on_boot` is enabled, the selected HTTP-backed provider must have enough auth configured to run: GCP and Azure need either `token_resolver` or `access_token`, Vault needs `token_resolver` or `token`, and Azure's default `synthetic` AAD strategy also needs `hmac_key_resolver`.
 
 See each provider's page for full details:
 

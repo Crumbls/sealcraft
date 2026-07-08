@@ -150,6 +150,9 @@ final class Encrypted implements CastsAttributes
         }
     }
 
+    /**
+     * @return array<string, string|null>
+     */
     public function set(Model $model, string $key, mixed $value, array $attributes): array
     {
         if ($value === null) {

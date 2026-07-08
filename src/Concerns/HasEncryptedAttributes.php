@@ -10,6 +10,7 @@ use Crumbls\Sealcraft\Events\ContextReencrypted;
 use Crumbls\Sealcraft\Events\ContextReencrypting;
 use Crumbls\Sealcraft\Exceptions\InvalidContextException;
 use Crumbls\Sealcraft\Services\CipherRegistry;
+use Crumbls\Sealcraft\Services\EncryptedPayloadRewriter;
 use Crumbls\Sealcraft\Services\KeyManager;
 use Crumbls\Sealcraft\Values\EncryptionContext;
 use Illuminate\Database\Eloquent\Model;
@@ -276,6 +277,19 @@ trait HasEncryptedAttributes
         return $encrypted;
     }
 
+    protected function sealcraftCastDriverFor(string $attribute): ?string
+    {
+        $cast = $this->getCasts()[$attribute] ?? null;
+
+        if (! is_string($cast)) {
+            return null;
+        }
+
+        $driver = strtok($cast, ':');
+
+        return is_string($driver) ? $driver : null;
+    }
+
     protected function handleSealcraftContextChange(): void
     {
         $strategy = $this->resolveSealcraftStrategy();
@@ -343,29 +357,39 @@ trait HasEncryptedAttributes
 
         $manager = app(KeyManager::class);
         $ciphers = app(CipherRegistry::class);
+        $rewriter = app(EncryptedPayloadRewriter::class);
 
         $oldDek = $manager->getOrCreateDek($oldContext);
-        $oldDataKey = $manager->getActiveDataKey($oldContext);
         $newDek = $manager->getOrCreateDek($newContext);
         $newDataKey = $manager->getActiveDataKey($newContext);
 
         $oldAad = $oldContext->toCanonicalBytes();
         $newAad = $newContext->toCanonicalBytes();
 
-        $oldCipher = $ciphers->cipher($oldDataKey->cipher);
         $newCipher = $ciphers->cipher($newDataKey->cipher);
 
         foreach ($encryptedAttributes as $attribute) {
-            $ciphertext = $this->getRawOriginal($attribute);
+            $driver = $this->sealcraftCastDriverFor($attribute);
 
-            if ($ciphertext === null) {
+            if ($driver === null) {
                 continue;
             }
 
-            $plaintext = $oldCipher->decrypt((string) $ciphertext, $oldDek, $oldAad);
-            $newCiphertext = $newCipher->encrypt($plaintext, $newDek, $newAad);
+            $preferNewContext = $this->isDirty($attribute);
+            $stored = $preferNewContext
+                ? ($this->attributes[$attribute] ?? null)
+                : $this->getRawOriginal($attribute);
 
-            $this->attributes[$attribute] = $newCiphertext;
+            $this->attributes[$attribute] = $rewriter->reencrypt(
+                castDriver: $driver,
+                stored: $stored,
+                oldDek: $oldDek,
+                oldAad: $oldAad,
+                newCipher: $newCipher,
+                newDek: $newDek,
+                newAad: $newAad,
+                preferNewContext: $preferNewContext,
+            );
 
             // Bust any cached decrypted value the cast may have stored.
             unset($this->classCastCache[$attribute]);

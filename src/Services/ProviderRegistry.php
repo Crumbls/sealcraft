@@ -15,6 +15,7 @@ use Crumbls\Sealcraft\Providers\GcpCloudKmsKekProvider;
 use Crumbls\Sealcraft\Providers\LocalKekProvider;
 use Crumbls\Sealcraft\Providers\NullKekProvider;
 use Crumbls\Sealcraft\Providers\VaultTransitKekProvider;
+use Crumbls\Sealcraft\Values\ProviderCapabilities;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -195,12 +196,18 @@ final class ProviderRegistry
         };
 
         $this->drivers['azure_key_vault'] = function (array $config, Application $app): KekProvider {
+            $aadStrategy = (string) ($config['aad_strategy'] ?? AzureKeyVaultKekProvider::STRATEGY_SYNTHETIC);
+
+            if ($aadStrategy === 'cipher_only') {
+                $aadStrategy = ProviderCapabilities::AAD_NONE;
+            }
+
             return new AzureKeyVaultKekProvider(
                 http: $app->make(HttpFactory::class),
                 vaultUrl: (string) ($config['vault_url'] ?? ''),
                 keyName: (string) ($config['key_name'] ?? ''),
                 tokenResolver: $config['token_resolver'] ?? fn (): string => (string) ($config['access_token'] ?? ''),
-                aadStrategy: (string) ($config['aad_strategy'] ?? AzureKeyVaultKekProvider::STRATEGY_SYNTHETIC),
+                aadStrategy: $aadStrategy,
                 hmacKeyResolver: $config['hmac_key_resolver'] ?? null,
             );
         };

@@ -58,7 +58,8 @@ it('rejects nested arrays', function (): void {
 });
 
 it('rejects object attributes even if stringable', function (): void {
-    $obj = new class {
+    $obj = new class
+    {
         public function __toString(): string
         {
             return 'x';

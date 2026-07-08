@@ -52,6 +52,9 @@ final class ConfigValidator
         self::validateResolvedProviderBlock($config);
     }
 
+    /**
+     * @param  array<string, mixed>  $config
+     */
     private static function validateDefaultProvider(array $config): void
     {
         $default = $config['default_provider'] ?? null;
@@ -74,6 +77,9 @@ final class ConfigValidator
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $config
+     */
     private static function validateDefaultCipher(array $config): void
     {
         $default = $config['default_cipher'] ?? null;
@@ -95,6 +101,9 @@ final class ConfigValidator
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $config
+     */
     private static function validateDekStrategy(array $config): void
     {
         $strategy = $config['dek_strategy'] ?? 'per_group';
@@ -107,6 +116,9 @@ final class ConfigValidator
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $config
+     */
     private static function validateContextColumn(array $config): void
     {
         $strategy = $config['dek_strategy'] ?? 'per_group';
@@ -133,6 +145,9 @@ final class ConfigValidator
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $config
+     */
     private static function validateRateLimit(array $config): void
     {
         $rate = $config['rate_limit']['unwrap_per_minute'] ?? 0;
@@ -145,6 +160,9 @@ final class ConfigValidator
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $config
+     */
     private static function validateResolvedProviderBlock(array $config): void
     {
         $default = $config['default_provider'] ?? null;
@@ -186,8 +204,59 @@ final class ConfigValidator
                 );
             }
         }
+
+        self::validateProviderAuth($default, $driver, $block);
     }
 
+    /**
+     * @param  array<string, mixed>  $block
+     */
+    private static function validateProviderAuth(string $providerName, string $driver, array $block): void
+    {
+        if (in_array($driver, ['gcp_kms', 'azure_key_vault'], true)) {
+            $hasTokenResolver = isset($block['token_resolver']) && is_callable($block['token_resolver']);
+            $hasStaticToken = isset($block['access_token']) && is_string($block['access_token']) && $block['access_token'] !== '';
+
+            if (! $hasTokenResolver && ! $hasStaticToken) {
+                throw new SealcraftException(
+                    "Sealcraft config error: provider [{$providerName}] (driver: {$driver}) requires a callable `token_resolver` or non-empty `access_token`."
+                );
+            }
+        }
+
+        if ($driver === 'vault_transit') {
+            $hasTokenResolver = isset($block['token_resolver']) && is_callable($block['token_resolver']);
+            $hasStaticToken = isset($block['token']) && is_string($block['token']) && $block['token'] !== '';
+
+            if (! $hasTokenResolver && ! $hasStaticToken) {
+                throw new SealcraftException(
+                    "Sealcraft config error: provider [{$providerName}] requires a callable `token_resolver` or non-empty `token`."
+                );
+            }
+        }
+
+        if ($driver !== 'azure_key_vault') {
+            return;
+        }
+
+        $aadStrategy = $block['aad_strategy'] ?? 'synthetic';
+
+        if (! in_array($aadStrategy, ['synthetic', 'none', 'cipher_only'], true)) {
+            throw new SealcraftException(
+                "Sealcraft config error: provider [{$providerName}] has unknown Azure AAD strategy [{$aadStrategy}]. Use `synthetic` or `cipher_only`."
+            );
+        }
+
+        if ($aadStrategy === 'synthetic' && (! isset($block['hmac_key_resolver']) || ! is_callable($block['hmac_key_resolver']))) {
+            throw new SealcraftException(
+                "Sealcraft config error: provider [{$providerName}] with synthetic AAD requires a callable `hmac_key_resolver`."
+            );
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
     private static function listKnownProviders(array $config): string
     {
         $providers = is_array($config['providers'] ?? null) ? array_keys($config['providers']) : [];
@@ -195,6 +264,9 @@ final class ConfigValidator
         return $providers === [] ? '(none configured)' : implode(', ', $providers);
     }
 
+    /**
+     * @param  array<string, mixed>  $config
+     */
     private static function listKnownCiphers(array $config): string
     {
         $ciphers = is_array($config['ciphers'] ?? null) ? array_keys($config['ciphers']) : [];

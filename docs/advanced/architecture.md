@@ -60,7 +60,7 @@ The plaintext DEK cache is bounded by `sealcraft.dek_cache.max_entries` (default
 
 Choose per_group by default. Reach for per_row when one DEK per row is a compliance requirement (e.g. HIPAA "destroy this specific patient's data without touching anyone else").
 
-## Why active-DEK uniqueness is enforced in app code, not via a DB unique index
+## Why active-DEK uniqueness uses an active hash
 
 See [ADR-0001](/documentation/sealcraft/v1/adr/0001-active-dek-uniqueness-in-app-layer).
 

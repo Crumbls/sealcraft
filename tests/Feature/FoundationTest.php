@@ -21,6 +21,7 @@ it('runs the sealcraft_data_keys migration', function (): void {
         'id',
         'context_type',
         'context_id',
+        'active_context_hash',
         'provider_name',
         'key_id',
         'key_version',
@@ -36,6 +37,7 @@ it('persists a DataKey and applies the active scope', function (): void {
     DataKey::query()->create([
         'context_type' => 'tenant',
         'context_id' => '42',
+        'active_context_hash' => DataKey::activeContextHash('tenant', '42'),
         'provider_name' => 'local',
         'key_id' => 'test-key',
         'key_version' => 'v1',
@@ -64,6 +66,7 @@ it('allows multiple retired DataKeys for the same context (history)', function (
     DataKey::query()->create([
         'context_type' => 'tenant',
         'context_id' => '7',
+        'active_context_hash' => DataKey::activeContextHash('tenant', '7'),
         'provider_name' => 'local',
         'key_id' => 'test-key',
         'cipher' => 'aes-256-gcm',
@@ -99,6 +102,7 @@ it('coerces integer context_id to string via the forContext scope', function ():
     DataKey::query()->create([
         'context_type' => 'tenant',
         'context_id' => '42',
+        'active_context_hash' => DataKey::activeContextHash('tenant', '42'),
         'provider_name' => 'local',
         'key_id' => 'test-key',
         'cipher' => 'aes-256-gcm',

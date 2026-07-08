@@ -31,7 +31,7 @@ final class RotateKekCommand extends Command
             return self::FAILURE;
         }
 
-        $query = DataKey::query()->active();
+        $query = DataKey::queryActive();
 
         $scope = [];
 
@@ -46,7 +46,7 @@ final class RotateKekCommand extends Command
         }
 
         if (is_string($this->option('provider'))) {
-            $query->forProvider((string) $this->option('provider'));
+            $query->where('provider_name', (string) $this->option('provider'));
             $scope[] = 'provider=' . $this->option('provider');
         }
 

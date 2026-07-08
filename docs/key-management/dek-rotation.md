@@ -10,17 +10,38 @@ Rotate the data key itself. Every row encrypted under the old DEK is decrypted a
 ```bash
 php artisan sealcraft:rotate-dek \
     "App\\Models\\Patient" \
-    --context-type=patient \
-    --context-id=42
+    patient \
+    42
 ```
 
 The command:
 
-1. Creates a new DEK for the context
-2. Reads every row matching the context
-3. Decrypts each encrypted column under the old DEK
-4. Re-encrypts under the new DEK
-5. Retires the old DEK
+1. Acquires a database advisory lock for the context where the database supports it
+2. Creates replacement DEK material in memory
+3. Opens one database transaction for the rewrite
+4. Decrypts every matching encrypted column under the old DEK
+5. Re-encrypts under the new DEK
+6. Retires the old DEK and activates the new DataKey row
+
+If a row fails to decrypt or update, the transaction rolls back. Rows already processed in that transaction return to their previous ciphertext and the old DataKey remains active.
+
+## Delegated contexts
+
+By default, `rotate-dek` scans discovered Sealcraft models for rows whose `sealcraftContext()` resolves to the same context. This covers the owner-plus-related-tables pattern from [Delegated context](/documentation/sealcraft/v1/encryption-contexts/delegated-context), where an owner row and dependent tables share one DEK.
+
+For large applications, pass one or more `--scan-path` values to limit discovery:
+
+```bash
+php artisan sealcraft:rotate-dek \
+    "App\\Models\\OwnedUser" \
+    "App\\Models\\OwnedUser" \
+    9b92c5a8-7f8f-4c3a-84fb-38df4d90bb9f \
+    --scan-path=app/Models
+```
+
+The first `App\\Models\\OwnedUser` is the model to scan efficiently. The second is the context type; for per-row models, that is usually the model's morph class.
+
+Use `--without-delegated-discovery` only when you know the context is used by the named model table and nowhere else.
 
 ## Pre-requisites
 
@@ -42,8 +63,8 @@ If you only need to comply with a rotation policy ("keys must rotate annually"),
 ```bash
 php artisan sealcraft:rotate-dek \
     "App\\Models\\Patient" \
-    --context-type=patient \
-    --context-id=42 \
+    patient \
+    42 \
     --dry-run
 ```
 

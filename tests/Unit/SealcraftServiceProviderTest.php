@@ -20,6 +20,7 @@ use Crumbls\Sealcraft\Services\KeyManager;
 use Crumbls\Sealcraft\Services\ProviderRegistry;
 use Crumbls\Sealcraft\Values\EncryptionContext;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\ServiceProvider;
 
 it('registers ProviderRegistry as a singleton', function (): void {
     $a = $this->app->make(ProviderRegistry::class);
@@ -95,7 +96,7 @@ it('registers commands as their documented classes', function (): void {
 });
 
 it('exposes sealcraft-config and sealcraft-migrations publish groups', function (): void {
-    $groups = \Illuminate\Support\ServiceProvider::$publishGroups;
+    $groups = ServiceProvider::$publishGroups;
 
     expect($groups)->toHaveKey('sealcraft-config');
     expect($groups)->toHaveKey('sealcraft-migrations');

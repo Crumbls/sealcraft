@@ -18,6 +18,7 @@ class EncryptedDocument extends Model
 
     public $timestamps = false;
 
+    /** @var array<string, string> */
     protected $casts = [
         'secret' => Encrypted::class,
         'note' => Encrypted::class,

@@ -12,6 +12,7 @@ use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Services\KeyManager;
 use Crumbls\Sealcraft\Services\ProviderRegistry;
 use Crumbls\Sealcraft\Values\EncryptionContext;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
@@ -69,6 +70,21 @@ it('refuses to create a second active DEK for the same context', function (): vo
 
     expect(fn () => $this->manager->createDek($this->ctx))
         ->toThrow(SealcraftException::class);
+});
+
+it('enforces active DEK uniqueness at the database layer too', function (): void {
+    $this->manager->createDek($this->ctx);
+
+    expect(fn () => DataKey::query()->create([
+        'context_type' => 'tenant',
+        'context_id' => '42',
+        'active_context_hash' => DataKey::activeContextHash('tenant', '42'),
+        'provider_name' => 'null',
+        'key_id' => 'manual',
+        'key_version' => null,
+        'cipher' => 'aes-256-gcm',
+        'wrapped_dek' => 'sc1:broken:broken',
+    ]))->toThrow(QueryException::class);
 });
 
 it('rotates a DataKey and keeps plaintext DEK stable', function (): void {
