@@ -1,11 +1,21 @@
 # Changelog
 
 All notable changes to `crumbls/sealcraft` are tracked here.
-Format loosely follows [Keep a Changelog](https://keepachangelog.com/);
-this package is pre-1.0 so breaking changes can land without a major
-bump until the 1.0 release.
+Format loosely follows [Keep a Changelog](https://keepachangelog.com/)
+and versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.4.0] - 2026-08-19
+
+### Security
+- **GitHub Actions now use immutable commit-SHA pins.** This prevents a
+  mutable action tag from being repointed between workflow runs.
+- **Dependabot now monitors Composer and GitHub Actions dependencies.**
+  Dependency and action updates are proposed automatically for review.
+- **Release archives now exclude development-only files.** CI configuration,
+  tests, local tooling, internal agent notes, and documentation sources are
+  no longer shipped in Composer distributions.
 
 ### Fixed
 - **`Model::replicate()` on per-row models no longer shares a DEK with the
