@@ -6,6 +6,8 @@ and versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-06
+
 ### Security
 - Crypto-shred now replaces active and retired wrapped DEKs in the live key table with unusable tombstones. Older backups and database logs still require separate retention controls.
 - The passthrough `null` KEK provider now refuses environments outside automated testing.
@@ -13,6 +15,10 @@ and versioning follows [Semantic Versioning](https://semver.org/).
 - Saved per-row keys cannot change through Eloquent, and per-column context changes re-encrypt their ciphertext.
 - DEKs created inside an outer transaction are not cached while that transaction is open.
 - New Vault Transit wraps authenticate canonical context through `associated_data`; rewrap older DEKs with `sealcraft:rotate-kek` to upgrade them.
+
+### Upgrade notes
+- If an `EncryptedJson` column contains legacy plaintext strings, migrate them before upgrading or temporarily enable `SEALCRAFT_JSON_ALLOW_LEGACY_PLAINTEXT=true` until migration is complete.
+- Vault Transit users should run `sealcraft:rotate-kek` after upgrading to add authenticated context to existing wrapped DEKs. This requires access to the previous Transit key versions.
 
 ## [1.4.0] - 2026-08-19
 
