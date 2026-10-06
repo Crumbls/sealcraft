@@ -17,14 +17,14 @@ final class ShredCommand extends Command
         {context_id : Context identifier}
         {--force : Skip the interactive confirmation}';
 
-    protected $description = 'Crypto-shred a context: retire its DEK without re-encryption, making all data under it permanently unrecoverable.';
+    protected $description = 'Crypto-shred a context by removing wrapped DEKs from the live key table.';
 
     public function handle(KeyManager $manager): int
     {
         $ctx = $this->buildContext((string) $this->argument('context_type'), (string) $this->argument('context_id'));
 
         $this->warn("This will DESTROY every ciphertext ever encrypted under context [{$ctx->contextType}:{$ctx->contextId}].");
-        $this->warn('The underlying row data stays on disk but becomes permanently unrecoverable. There is no undo.');
+        $this->warn('Encrypted rows remain. Older key backups may still permit recovery; review backup retention.');
 
         if (! $this->option('force')) {
             $confirmation = (string) $this->ask("Type the context id [{$ctx->contextId}] to confirm");

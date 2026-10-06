@@ -9,9 +9,8 @@ use Crumbls\Sealcraft\Values\EncryptionContext;
 
 /**
  * Fired when a context's DEK has been crypto-shredded. Wire to SIEM
- * and any right-to-be-forgotten audit trail: once this event fires,
- * every ciphertext previously encrypted under this context is
- * permanently unrecoverable.
+ * and any deletion audit trail. The live wrapped DEKs were removed;
+ * older backups and replicas require separate retention controls.
  */
 final class DekShredded
 {

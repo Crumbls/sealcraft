@@ -74,6 +74,58 @@ it('cast parameter override routes a single column to a different context', func
     expect($fresh->work_notes)->toBe('under-employer-dek');
 });
 
+it('re-encrypts only the overridden column when its context id changes', function (): void {
+    $patient = UnifiedPatient::query()->create([
+        'patient_id' => 1008,
+        'employer_id' => 6008,
+        'ssn' => 'patient-secret',
+        'work_notes' => 'employer-secret',
+    ]);
+    $oldSsn = $patient->getRawOriginal('ssn');
+    $oldNotes = $patient->getRawOriginal('work_notes');
+
+    $patient->employer_id = 6009;
+    $patient->save();
+
+    expect($patient->getRawOriginal('ssn'))->toBe($oldSsn);
+    expect($patient->getRawOriginal('work_notes'))->not->toBe($oldNotes);
+    $this->app->make(DekCache::class)->flush();
+    $fresh = UnifiedPatient::query()->findOrFail($patient->id);
+    expect($fresh->ssn)->toBe('patient-secret');
+    expect($fresh->work_notes)->toBe('employer-secret');
+});
+
+it('keeps override ciphertext bound to its own context when the model context changes', function (): void {
+    $patient = UnifiedPatient::query()->create([
+        'patient_id' => 1010,
+        'employer_id' => 6010,
+        'ssn' => 'patient-secret',
+        'work_notes' => 'employer-secret',
+    ]);
+    $oldNotes = $patient->getRawOriginal('work_notes');
+
+    $patient->patient_id = 1011;
+    $patient->save();
+
+    expect($patient->getRawOriginal('work_notes'))->toBe($oldNotes);
+    $this->app->make(DekCache::class)->flush();
+    $fresh = UnifiedPatient::query()->findOrFail($patient->id);
+    expect($fresh->ssn)->toBe('patient-secret');
+    expect($fresh->work_notes)->toBe('employer-secret');
+});
+
+it('rejects an override context change when automatic re-encryption is disabled', function (): void {
+    $patient = UnifiedPatient::query()->create([
+        'patient_id' => 1012,
+        'employer_id' => 6012,
+        'work_notes' => 'employer-secret',
+    ]);
+    config()->set('sealcraft.auto_reencrypt_on_context_change', false);
+
+    $patient->employer_id = 6013;
+    expect(fn () => $patient->save())->toThrow(InvalidContextException::class);
+});
+
 it('cast-override ciphertext cannot be decrypted with the model-level DEK (proves the binding)', function (): void {
     $patient = UnifiedPatient::query()->create([
         'patient_id' => 1004,

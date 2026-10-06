@@ -294,54 +294,118 @@ trait HasEncryptedAttributes
     {
         $strategy = $this->resolveSealcraftStrategy();
 
-        if ($strategy !== 'per_group') {
-            // Per-row context is derived from an immutable sealcraft_key
-            // column populated on first cast invocation; the row's
-            // encryption context cannot change via attribute mutation.
+        if ($strategy === 'per_row' && $this->isDirty($this->resolveSealcraftRowKeyColumn())) {
+            throw new InvalidContextException('A saved model cannot change its Sealcraft row key.');
+        }
+
+        $encryptedAttributes = $this->sealcraftEncryptedAttributes();
+        $changes = [];
+
+        if ($strategy === 'per_group') {
+            $column = $this->resolveSealcraftContextColumn();
+
+            if ($this->isDirty($column)) {
+                $originalValue = $this->getRawOriginal($column);
+
+                if ($originalValue !== null && $originalValue !== '') {
+                    $attributes = array_values(array_filter(
+                        $encryptedAttributes,
+                        fn (string $attribute): bool => $this->sealcraftCastContextOverride($attribute) === null,
+                    ));
+
+                    if ($attributes !== []) {
+                        $changes[] = [
+                            new EncryptionContext($this->resolveSealcraftContextType(), is_int($originalValue) ? $originalValue : (string) $originalValue),
+                            $this->sealcraftContext(),
+                            $attributes,
+                        ];
+                    }
+                }
+            }
+        }
+
+        foreach ($encryptedAttributes as $attribute) {
+            $override = $this->sealcraftCastContextOverride($attribute);
+
+            if ($override === null || ! $this->isDirty($override['column'])) {
+                continue;
+            }
+
+            $originalValue = $this->getRawOriginal($override['column']);
+            $newValue = $this->getAttributeValue($override['column']);
+
+            if ($newValue === null || $newValue === '') {
+                throw new InvalidContextException("Sealcraft override context column [{$override['column']}] cannot be empty while changing context.");
+            }
+
+            if ($originalValue === null || $originalValue === '') {
+                if ($this->getRawOriginal($attribute) !== null) {
+                    throw new InvalidContextException("Sealcraft override context column [{$override['column']}] was empty for an encrypted value.");
+                }
+
+                continue;
+            }
+
+            $changes[] = [
+                new EncryptionContext($override['type'], is_int($originalValue) ? $originalValue : (string) $originalValue),
+                new EncryptionContext($override['type'], is_int($newValue) ? $newValue : (string) $newValue),
+                [$attribute],
+            ];
+        }
+
+        if ($changes === []) {
             return;
         }
 
-        $column = $this->resolveSealcraftContextColumn();
-
-        if (! $this->isDirty($column)) {
-            return;
+        if (! (bool) config('sealcraft.auto_reencrypt_on_context_change', true)) {
+            throw new InvalidContextException(
+                static::class . ' attempted to change a Sealcraft context column; auto_reencrypt_on_context_change is disabled. Use sealcraft:reencrypt-context to migrate the row explicitly.'
+            );
         }
 
         Encrypted::forgetContext($this);
         EncryptedJson::forgetContext($this);
 
-        $originalValue = $this->getOriginal($column);
+        foreach ($changes as [$oldContext, $newContext, $attributes]) {
+            $this->reencryptSealcraftAttributes($oldContext, $newContext, $attributes);
+        }
+    }
 
-        if ($originalValue === null || $originalValue === '') {
-            // Row was saved without a context previously; nothing to
-            // re-encrypt. The upcoming save will simply encrypt under
-            // the new context.
-            return;
+    /**
+     * @return array{type: string, column: string}|null
+     */
+    protected function sealcraftCastContextOverride(string $attribute): ?array
+    {
+        $cast = $this->getCasts()[$attribute] ?? null;
+
+        if (! is_string($cast) || ! str_contains($cast, ':')) {
+            return null;
         }
 
-        $autoEnabled = (bool) config('sealcraft.auto_reencrypt_on_context_change', true);
+        $params = explode(':', $cast, 2)[1];
+        $options = [];
 
-        if (! $autoEnabled) {
-            throw new InvalidContextException(
-                static::class . " attempted to change its Sealcraft context column [{$column}]; auto_reencrypt_on_context_change is disabled. Use sealcraft:reencrypt-context to migrate the row explicitly."
-            );
+        foreach (explode(',', $params) as $param) {
+            if (! str_contains($param, '=')) {
+                continue;
+            }
+
+            [$key, $value] = explode('=', $param, 2);
+            $options[trim($key)] = trim($value);
         }
 
-        $type = $this->resolveSealcraftContextType();
-
-        $oldContext = new EncryptionContext(
-            contextType: $type,
-            contextId: is_int($originalValue) ? $originalValue : (string) $originalValue,
-        );
-
-        $newContext = $this->sealcraftContext();
-
-        $encryptedAttributes = $this->sealcraftEncryptedAttributes();
-
-        if ($encryptedAttributes === []) {
-            return;
+        if (! isset($options['type'], $options['column']) || $options['type'] === '' || $options['column'] === '') {
+            return null;
         }
 
+        return ['type' => $options['type'], 'column' => $options['column']];
+    }
+
+    /**
+     * @param  array<int, string>  $encryptedAttributes
+     */
+    protected function reencryptSealcraftAttributes(EncryptionContext $oldContext, EncryptionContext $newContext, array $encryptedAttributes): void
+    {
         $proceed = Event::until(new ContextReencrypting(
             model: $this,
             oldContext: $oldContext,

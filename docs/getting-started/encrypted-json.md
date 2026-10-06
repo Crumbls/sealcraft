@@ -33,7 +33,9 @@ $patient->history = [
 
 On disk the column is still valid JSON. Every **non-empty string leaf** is individually encrypted under the same DEK as the row's scalar `Encrypted` columns. Keys, nesting, empty strings, and non-string scalars (ints, floats, bools, nulls) stay readable.
 
-On read, leaves that carry a cipher prefix are decrypted. Strings without a prefix pass through unchanged, so a column can safely mix plaintext shape data with encrypted leaves -- useful during migration.
+On read, string leaves without a Sealcraft cipher prefix raise `DecryptionFailedException` by default. During a controlled migration of legacy JSON, set `SEALCRAFT_JSON_ALLOW_LEGACY_PLAINTEXT=true` temporarily to permit those strings, then rewrite the rows through the cast and turn the setting off.
+
+Keys, empty strings, and non-string scalars remain visible and are not authenticated by this cast. If the entire document needs confidentiality or integrity, serialize it and use the scalar `Encrypted` cast instead.
 
 ## When to use it
 

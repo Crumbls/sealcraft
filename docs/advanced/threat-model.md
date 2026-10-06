@@ -21,7 +21,7 @@ The per-context unwrap rate limit (`sealcraft.rate_limit.unwrap_per_minute`) blu
 
 ### Right-to-be-forgotten requests
 
-Crypto-shred instantly makes a user's data unrecoverable without requiring row-level deletion across every table, backup, audit log, warehouse, and replica. See [Crypto-shred](/documentation/sealcraft/v1/key-management/crypto-shred).
+Crypto-shred removes a user's wrapped DEKs from the live key table and blocks Sealcraft reads across related rows. Older key backups and database logs can still permit recovery while the KEK remains available; manage their retention and restoration separately. See [Crypto-shred](/documentation/sealcraft/v1/key-management/crypto-shred).
 
 ## What Sealcraft does NOT protect against
 

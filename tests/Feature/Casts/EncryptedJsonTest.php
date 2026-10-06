@@ -203,7 +203,7 @@ it('raises DecryptionFailedException when a ciphertext leaf is tampered with', f
     Event::assertDispatched(DecryptionFailed::class);
 });
 
-it('passes plaintext leaves without a cipher prefix straight through on read', function (): void {
+it('rejects plaintext string leaves by default', function (): void {
     // Simulate a row written by a previous system that stored plain JSON;
     // sealcraft should not attempt to decrypt strings that carry no
     // recognizable cipher prefix.
@@ -222,8 +222,25 @@ it('passes plaintext leaves without a cipher prefix straight through on read', f
     $this->app->make(DekCache::class)->flush();
     $fresh = EncryptedJsonRecord::query()->find($record->id);
 
-    expect($fresh->history['encrypted-leaf'])->toBe('will be ciphered');
-    expect($fresh->history['plain-leaf'])->toBe('this is plaintext');
+    Event::fake([DecryptionFailed::class]);
+    expect(fn () => $fresh->history)->toThrow(DecryptionFailedException::class);
+    Event::assertDispatched(DecryptionFailed::class);
+});
+
+it('allows legacy plaintext string leaves only with explicit migration opt-in', function (): void {
+    $record = EncryptedJsonRecord::query()->create([
+        'name' => 'mixed',
+        'history' => ['encrypted-leaf' => 'ciphertext'],
+    ]);
+
+    $raw = json_decode($record->getRawOriginal('history'), true);
+    $raw['plain-leaf'] = 'legacy';
+    DB::table('encrypted_json_records')->where('id', $record->id)->update(['history' => json_encode($raw)]);
+
+    config()->set('sealcraft.encrypted_json.allow_legacy_plaintext_reads', true);
+    $this->app->make(DekCache::class)->flush();
+
+    expect(EncryptedJsonRecord::query()->findOrFail($record->id)->history['plain-leaf'])->toBe('legacy');
 });
 
 it('refuses encrypted JSON writes on a pre-existing row with empty sealcraft_key, then accepts them after backfill', function (): void {

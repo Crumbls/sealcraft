@@ -35,9 +35,9 @@ Most apps that adopt Sealcraft still use `Crypt` everywhere else.
   customer. Per-tenant crypto-shred on cancellation.
 - **Identity / auth:** stored OAuth refresh tokens, third-party API keys,
   MFA backup codes, KYC documents (passport / DL / national ID).
-- **Legal / compliance:** privileged communications, protected-identity
-  fields, GDPR Article 17 fulfillment across warehouses and backups via
-  crypto-shred.
+- **Legal / compliance:** privileged communications and protected-identity
+  fields. Crypto-shred removes live wrapped DEKs; erasure workflows must
+  also handle backups, replicas, and plaintext copies.
 - **Consumer apps:** encrypted notes, journals, personal vaults where
   users expect that an internal DB reader alone cannot see content.
 - **B2B SaaS:** CRM PII in strict-privacy jurisdictions, HR data
@@ -144,8 +144,10 @@ On disk, the column stays valid JSON — every leaf string is individually
 encrypted under the same DEK as the row's scalar encrypted columns, while
 keys, nesting, and non-string scalars (ints, floats, bools, nulls) remain
 readable. On read, leaves that carry a cipher prefix are decrypted;
-strings without a prefix pass through unchanged so columns can mix
-plaintext shape data with encrypted leaves.
+strings without a prefix raise `DecryptionFailedException` by default.
+Set `SEALCRAFT_JSON_ALLOW_LEGACY_PLAINTEXT=true` only while migrating
+legacy JSON. Keys and non-string values remain visible and unauthenticated;
+use the scalar `Encrypted` cast for an entire sensitive JSON document.
 
 ### AWS KMS
 
@@ -381,12 +383,16 @@ Or:
 php artisan sealcraft:shred Crumbls\\Sealcraft\\Tests\\Fixtures\\OwnedUser <sealcraft_key>
 ```
 
-After shred, every ciphertext ever wrapped under that context becomes
-cryptographically unrecoverable. Reads raise `ContextShreddedException`
+Shred removes every wrapped DEK for that context from the live key table
+and keeps tombstones to prevent reuse. Reads raise `ContextShreddedException`
 (a separate exception from `DecryptionFailedException`, so apps can
 render a "record destroyed at user request" message instead of a 500).
 Writes to a shredded context also fail with `ContextShreddedException`,
 preventing accidental resurrection.
+
+Older backups or database logs can still contain wrapped DEKs. Retain or
+purge them according to your deletion policy; restoring an old key row can
+restore access to the ciphertext.
 
 The `DekShredded` event fires on success — wire it to your compliance
 audit log.
@@ -526,9 +532,9 @@ scale to 10k+ tenants.
 - **KMS enumeration.** The per-context unwrap rate limit blunts
   attacks that try to bulk-enumerate wrapped DEKs through a compromised
   KMS network path.
-- **Right-to-be-forgotten requests.** Crypto-shred instantly makes a
-  user's data unrecoverable without requiring row-level deletion
-  across every table (backups, audit logs, warehouses, replicas).
+- **Right-to-be-forgotten requests.** Crypto-shred removes wrapped DEKs
+  from the live key table and blocks reads across rows sharing a context.
+  Backup and replica copies of key rows need separate retention controls.
 
 **What Sealcraft does NOT protect against:**
 

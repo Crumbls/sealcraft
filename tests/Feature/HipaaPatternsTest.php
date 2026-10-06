@@ -112,6 +112,16 @@ it('is idempotent when shredding an already-shredded context', function (): void
     expect(DataKey::query()->forContext($morph, $user->sealcraft_key)->shredded()->count())->toBe(1);
 });
 
+it('refuses to mutate a saved per-row context key', function (): void {
+    $user = OwnedUser::query()->create(['email' => 'fixed@x', 'ssn' => 'secret']);
+    $originalKey = $user->sealcraft_key;
+
+    $user->sealcraft_key = 'attacker-selected-key';
+    expect(fn () => $user->save())->toThrow(InvalidContextException::class);
+
+    expect(DB::table('owned_users')->where('id', $user->id)->value('sealcraft_key'))->toBe($originalKey);
+});
+
 it('never fires a DecryptionFailed event on a shredded read', function (): void {
     $user = OwnedUser::query()->create(['email' => 'eve@x', 'ssn' => 'eve-ssn']);
 

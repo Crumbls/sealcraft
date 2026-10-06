@@ -76,6 +76,7 @@ final class VaultTransitKekProvider implements KekProvider, SupportsKeyVersionin
             ->post($this->endpoint('encrypt'), [
                 'plaintext' => base64_encode($plaintextDek),
                 'context' => $ctx->toVaultTransitContext(),
+                'associated_data' => $ctx->toVaultTransitContext(),
             ]));
 
         $body = $response->json();
@@ -93,21 +94,28 @@ final class VaultTransitKekProvider implements KekProvider, SupportsKeyVersionin
             keyId: $this->currentKeyId(),
             keyVersion: $version,
             aadStrategy: ProviderCapabilities::AAD_NATIVE,
+            metadata: ['vault_aad' => 'associated_data'],
         );
     }
 
     public function unwrap(WrappedDek $wrapped, EncryptionContext $ctx): string
     {
+        $payload = [
+            'ciphertext' => $wrapped->ciphertext,
+            'context' => $ctx->toVaultTransitContext(),
+        ];
+
+        if (($wrapped->metadata['vault_aad'] ?? null) === 'associated_data') {
+            $payload['associated_data'] = $ctx->toVaultTransitContext();
+        }
+
         try {
             $response = $this->retrying(fn () => $this->http
                 ->withHeaders(['X-Vault-Token' => ($this->tokenResolver)()])
                 ->acceptJson()
                 ->asJson()
                 ->throw()
-                ->post($this->endpoint('decrypt'), [
-                    'ciphertext' => $wrapped->ciphertext,
-                    'context' => $ctx->toVaultTransitContext(),
-                ]));
+                ->post($this->endpoint('decrypt'), $payload));
         } catch (RequestException $e) {
             if ($this->isAuthError($e)) {
                 throw new DecryptionFailedException('Vault Transit refused decrypt: context mismatch or tampering.');

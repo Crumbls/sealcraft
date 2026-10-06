@@ -3,7 +3,7 @@ title: Crypto-Shred
 weight: 40
 ---
 
-Permanent destruction of a context's DEK. Every ciphertext ever wrapped under that context becomes cryptographically unrecoverable. This is the right-to-be-forgotten primitive.
+Crypto-shred removes a context's wrapped DEKs from the live DataKey table and blocks future Sealcraft reads and writes. Plan backup and replica retention separately before treating a deletion request as complete.
 
 ## Programmatic
 
@@ -22,12 +22,12 @@ php artisan sealcraft:shred \
 
 ## What happens
 
-1. The `DataKey` row for the context is deleted from the database
-2. The KEK-wrapped DEK is unrecoverable (the DEK plaintext never persisted)
-3. Existing row ciphertext remains on disk but cannot be decrypted by anyone, including you
-4. The DEK cache is invalidated
+1. Every DataKey row for the context, including retired versions, has its `wrapped_dek` replaced with an unusable marker and is marked shredded
+2. The rows remain as tombstones so Sealcraft refuses to create a replacement DEK
+3. Existing encrypted data rows remain on disk but cannot be read through Sealcraft
+4. The local DEK cache is invalidated
 
-The original data row is not deleted -- only the key is. This is what makes crypto-shred faster than cascading `DELETE` across every table and every backup.
+The encrypted data rows are not deleted. Databases may retain old row versions in WAL, replicas, snapshots, and backups, so destroying the live wrapped DEK does not erase those copies.
 
 ## Behavior after shred
 
@@ -43,4 +43,4 @@ The original data row is not deleted -- only the key is. This is what makes cryp
 
 ## Backup implications
 
-Crypto-shred works on backups too -- once the DEK is destroyed, backup copies of the ciphertext are just as unrecoverable. That is the whole point. Make sure your backup of the `sealcraft_data_keys` table is not unconditionally restored, or you will un-shred a user.
+An older backup of `sealcraft_data_keys` may still contain a usable wrapped DEK. Anyone with that backup, the matching KEK, and the ciphertext can recover the data. Ensure backup retention, restoration controls, and replica handling meet your deletion policy. Never restore an older key row over a shredded tombstone without an explicit review.

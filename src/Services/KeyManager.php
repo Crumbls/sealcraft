@@ -79,9 +79,10 @@ final class KeyManager
         $cipher = $this->ciphers->cipher($cipherName);
 
         $connection = $this->db->connection();
+        $plaintext = null;
 
         try {
-            $dataKey = $connection->transaction(function () use ($ctx, $provider, $providerName, $cipher, $cipherName): DataKey {
+            $dataKey = $connection->transaction(function () use ($ctx, $provider, $providerName, $cipher, $cipherName, &$plaintext): DataKey {
                 $existing = DataKey::queryActiveForContext($ctx->contextType, $ctx->contextId)
                     ->lockForUpdate()
                     ->first();
@@ -116,6 +117,10 @@ final class KeyManager
 
                 return $dataKey;
             });
+
+            if ($connection->transactionLevel() === 0 && is_string($plaintext)) {
+                $this->cache->put($ctx, $plaintext, $dataKey);
+            }
 
             return $dataKey;
         } catch (QueryException $e) {
@@ -178,6 +183,7 @@ final class KeyManager
     {
         $dataKey->markRetired();
         $dataKey->save();
+        $this->cache->flush();
     }
 
     /**
@@ -210,15 +216,13 @@ final class KeyManager
     }
 
     /**
-     * Crypto-shred a context's DEK. The active DataKey row is marked
-     * retired AND shredded; no replacement is created. All ciphertext
-     * previously encrypted under this context becomes permanently
-     * unrecoverable.
+     * Crypto-shred a context's DEKs in the live key table. All active
+     * and historical wrapped DEKs are replaced with an unusable marker;
+     * tombstones prevent replacement. Backups require separate controls.
      *
-     * This is the mechanism for honoring right-to-be-forgotten /
-     * data-erasure requests without having to delete every field in
-     * every related row (which is impossible in the presence of
-     * backups, replicas, audit logs, and data warehouses).
+     * Encrypted data rows remain untouched. Database snapshots, replicas,
+     * and logs may retain older wrapped DEKs until their own retention
+     * policies remove them.
      *
      * Idempotent: repeated calls for an already-shredded context
      * are no-ops.
@@ -285,7 +289,7 @@ final class KeyManager
         }
 
         throw new ContextShreddedException(
-            "Context [{$ctx->contextType}:{$ctx->contextId}] has been crypto-shredded; data encrypted under it is permanently unrecoverable."
+            "Context [{$ctx->contextType}:{$ctx->contextId}] has been crypto-shredded; its live wrapped DEKs are unavailable."
         );
     }
 

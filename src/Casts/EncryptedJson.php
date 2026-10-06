@@ -36,11 +36,9 @@ use Throwable;
  *
  *   - get(): returns null for null; otherwise json-decodes and walks
  *     the tree. String leaves carrying a recognizable cipher prefix
- *     are decrypted; strings without the prefix pass through as-is
- *     (supports mixed plaintext/ciphertext during migrations). A
- *     prefix-bearing leaf that fails authentication raises
- *     DecryptionFailedException — we never silently return tampered
- *     ciphertext as plaintext.
+ *     are decrypted; unprefixed strings fail unless legacy plaintext
+ *     migration mode is explicitly enabled. Authentication failures
+ *     raise DecryptionFailedException.
  *
  * The host model must expose sealcraftContext(): EncryptionContext
  * (typically via the HasEncryptedAttributes trait).
@@ -282,13 +280,16 @@ final class EncryptedJson implements CastsAttributes
             $cipherId = $ciphers->peekId($v);
 
             if ($cipherId === null) {
-                // No ciphertext prefix — treat as plaintext (or
-                // unrelated data) and pass through unchanged. This
-                // supports mixed-content columns and graceful
-                // handling of pre-encryption seeds.
-                $out[$k] = $v;
+                if ((bool) config('sealcraft.encrypted_json.allow_legacy_plaintext_reads', false)) {
+                    $out[$k] = $v;
 
-                continue;
+                    continue;
+                }
+
+                $e = new DecryptionFailedException('EncryptedJson string leaf has no recognizable Sealcraft cipher ID prefix.');
+                Event::dispatch(new DecryptionFailed('cipher', $context, $dataKey->provider_name, $e));
+
+                throw $e;
             }
 
             try {

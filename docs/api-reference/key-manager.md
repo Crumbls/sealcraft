@@ -23,7 +23,7 @@ public function rotateKek(?EncryptionContext $context = null, ?string $provider 
 /** Re-encrypt every row under a new DEK. Expects a quiesced context. */
 public function rotateDek(string $modelClass, EncryptionContext $context): int;
 
-/** Permanently destroy a context's DEK. */
+/** Remove a context's wrapped DEKs from the live key table. */
 public function shredContext(EncryptionContext $context): void;
 ```
 

@@ -46,7 +46,9 @@ The `read` on `transit/keys/app-kek` is required for `sealcraft:rotate-kek` to d
 
 ## AAD
 
-Vault Transit's `encrypt` / `decrypt` endpoints accept a `context` field which Sealcraft uses as AAD. Synthetic AAD is not required.
+New wraps send canonical context bytes as both Transit `context` (for derived keys) and `associated_data` (AEAD authentication). `context` alone only derives a key when the Transit key has `derived=true`; it does not provide AAD on a regular key. Use an AEAD Transit key such as `aes256-gcm96`.
+
+Wrapped DEKs created by older Sealcraft releases carry no `associated_data` marker. They remain readable through the legacy request path. After upgrading, run `sealcraft:rotate-kek` to rewrap them with authenticated data. Until then, older wraps under a non-derived Transit key do not have wrap-layer context authentication.
 
 ## Key rotation
 

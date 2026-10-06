@@ -110,11 +110,13 @@ it('rotates a DataKey and keeps plaintext DEK stable', function (): void {
 
 it('retires a DataKey via retireDek', function (): void {
     $dk = $this->manager->createDek($this->ctx);
+    expect($this->cache->has($this->ctx))->toBeTrue();
 
     $this->manager->retireDek($dk);
 
     expect(DataKey::query()->forContext('tenant', 42)->active()->count())->toBe(0);
     expect(DataKey::query()->forContext('tenant', 42)->retired()->count())->toBe(1);
+    expect($this->cache->has($this->ctx))->toBeFalse();
 });
 
 it('caches DataKey so getActiveDataKey does not repeat queries', function (): void {

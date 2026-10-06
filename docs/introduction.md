@@ -18,7 +18,7 @@ Both exist. You will probably use both in the same app. The split:
 | Typical targets | Sessions, cookies, signed URLs, small casual fields | Regulated / sensitive DB columns |
 | Rotation | Re-encrypt every ciphertext after `APP_KEY` rotation | Rewrap one DB row per tenant; row ciphertext untouched |
 | Multi-tenant isolation | One key protects everything | One DEK per tenant (or per row); one compromise, one tenant |
-| Right-to-be-forgotten | Delete rows from every table and every backup | Destroy the tenant's DEK once; ciphertext everywhere becomes permanently unrecoverable |
+| Right-to-be-forgotten | Remove key material from live storage and manage backup retention | Shred the tenant's live wrapped DEKs; backup copies need separate controls |
 | Compliance story | Fine for ordinary web apps | Designed to pass HIPAA, SOC 2, PCI-adjacent reviews |
 
 ## Use cases
@@ -29,7 +29,7 @@ Concrete scenarios where teams reach for Sealcraft.
 
 - Patient SSN, date of birth, diagnosis codes, insurance IDs
 - Telehealth session notes, referral letters
-- Right-to-be-forgotten when a patient closes their account -- one crypto-shred call, every backup and replica goes dark for that patient
+- Right-to-be-forgotten when a patient closes their account -- one crypto-shred call blocks live reads across related encrypted rows; key backups and replicas need separate handling
 
 ### Financial services
 
@@ -54,7 +54,7 @@ Concrete scenarios where teams reach for Sealcraft.
 
 - Privileged attorney-client communications
 - Witness names and protected-identity fields in case-management systems
-- GDPR Article 17 (right to erasure) fulfillment at scale -- crypto-shred a user's DEK and their data is cryptographically erased from warehouses, replicas, and backup tapes in one move
+- Erasure workflows at scale -- crypto-shred live wrapped DEKs, then apply your retention and deletion policy to backups, replicas, and plaintext copies
 
 ### Consumer apps with user-level privacy expectations
 

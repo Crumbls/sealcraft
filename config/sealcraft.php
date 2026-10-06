@@ -78,6 +78,10 @@ return [
     */
     'auto_reencrypt_on_context_change' => env('SEALCRAFT_AUTO_REENCRYPT', true),
 
+    'encrypted_json' => [
+        'allow_legacy_plaintext_reads' => (bool) env('SEALCRAFT_JSON_ALLOW_LEGACY_PLAINTEXT', false),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Storage

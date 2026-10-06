@@ -56,7 +56,7 @@ The column holds a value that does not look like a sealcraft ciphertext envelope
 
 ## `ContextShreddedException` on read/write
 
-Expected — this is right-to-be-forgotten firing. Render a "record destroyed at user request" message in your app. If you got here by accident, the DEK for that context has been retired AND flagged `shredded_at`; it cannot be recovered.
+Expected — the context's live wrapped DEKs have been removed and its key rows marked `shredded_at`. Render a "record destroyed at user request" message in your app. Older backups may still contain recoverable wrapped DEKs; follow your backup retention and restoration policy.
 
 ## `KekUnavailableException: ...`
 

@@ -8,7 +8,7 @@ namespace Crumbls\Sealcraft\Exceptions;
  * Raised when an encrypted attribute is accessed for a context whose
  * DEK has been crypto-shredded (typically to honor a right-to-be-
  * forgotten request). The underlying ciphertext still exists on disk
- * but is permanently unrecoverable.
+ * but its live wrapped DEKs have been removed.
  *
  * Applications should catch this and treat the record as destroyed
  * at the UX layer — rendering "this record was deleted at user

@@ -28,6 +28,7 @@ return [
 | `context_column` | Default context column for per-group models | `tenant_id` |
 | `context_type` | Default context type string | `tenant` |
 | `auto_reencrypt_on_context_change` | Auto re-encrypt when a context column changes | `true` |
+| `encrypted_json.allow_legacy_plaintext_reads` | Permit unprefixed JSON string leaves during a controlled migration | `false` |
 | `validate_on_boot` | Fail fast on invalid provider/cipher config during boot | `true` |
 
 Any of these can be overridden per model by setting the matching property on the model class (e.g. `$sealcraftStrategy`).

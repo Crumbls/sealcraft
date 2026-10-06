@@ -22,6 +22,7 @@ use Crumbls\Sealcraft\Events\DekRotated;
 use Crumbls\Sealcraft\Events\DekShredded;
 use Crumbls\Sealcraft\Events\DekUnwrapped;
 use Crumbls\Sealcraft\Exceptions\ContextShreddedException;
+use Crumbls\Sealcraft\Exceptions\DecryptionFailedException;
 use Crumbls\Sealcraft\Exceptions\InvalidContextException;
 use Crumbls\Sealcraft\Models\DataKey;
 use Crumbls\Sealcraft\Providers\AwsKmsKekProvider;
@@ -164,7 +165,7 @@ it('round-trips a nested EncryptedJson column preserving structure', function ()
     expect($fresh->history)->toEqual($history);
 });
 
-it('passes unprefixed string leaves through unchanged on read', function (): void {
+it('rejects unprefixed string leaves unless legacy migration mode is enabled', function (): void {
     $tenantId = 3;
     $patient = Patient::query()->create([
         'tenant_id' => $tenantId,
@@ -181,6 +182,9 @@ it('passes unprefixed string leaves through unchanged on read', function (): voi
     $this->app->make(DekCache::class)->flush();
 
     $fresh = Patient::query()->find($patient->id);
+    expect(fn () => $fresh->history)->toThrow(DecryptionFailedException::class);
+
+    config()->set('sealcraft.encrypted_json.allow_legacy_plaintext_reads', true);
     expect($fresh->history['notes'])->toBe('encrypted');
     expect($fresh->history['plain_note'])->toBe('plain text leaf');
 });

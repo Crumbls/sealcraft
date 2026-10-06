@@ -49,6 +49,8 @@ The command is idempotent, supports `--chunk` and `--dry-run`, and bypasses mode
 
 A `creating` hook on the trait ensures every newly INSERTed per-row model carries a row-key, even if no encrypted attribute is touched during fill.
 
+After insertion, the row-key is immutable through Eloquent saves. Changing it would make existing ciphertext unreadable or bind the row to another DEK, so the trait raises `InvalidContextException`. Keep the column out of mass-assignment input and use an explicit migration if a context really must change.
+
 ## Performance
 
 One KEK unwrap per distinct row you read. The DEK cache keeps steady-state request overhead low, but bulk reads of unique rows are more expensive than per-group.
