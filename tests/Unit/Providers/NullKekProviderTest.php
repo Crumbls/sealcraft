@@ -3,8 +3,10 @@
 declare(strict_types=1);
 
 use Crumbls\Sealcraft\Exceptions\DecryptionFailedException;
+use Crumbls\Sealcraft\Exceptions\SealcraftException;
 use Crumbls\Sealcraft\Providers\NullKekProvider;
 use Crumbls\Sealcraft\Values\EncryptionContext;
+use Illuminate\Contracts\Foundation\Application;
 
 beforeEach(function (): void {
     $this->provider = new NullKekProvider;
@@ -40,4 +42,11 @@ it('generates a DataKeyPair with wrapped DEK under matching context', function (
 
     expect(strlen($pair->plaintext))->toBe(32);
     expect($this->provider->unwrap($pair->wrapped, $this->ctx))->toBe($pair->plaintext);
+});
+
+it('refuses to operate outside automated testing', function (): void {
+    $app = Mockery::mock(Application::class);
+    $app->shouldReceive('environment')->with('testing')->once()->andReturn(false);
+
+    expect(fn () => new NullKekProvider($app))->toThrow(SealcraftException::class);
 });

@@ -7,10 +7,12 @@ namespace Crumbls\Sealcraft\Providers;
 use Crumbls\Sealcraft\Contracts\GeneratesDataKeys;
 use Crumbls\Sealcraft\Contracts\SupportsNativeAad;
 use Crumbls\Sealcraft\Exceptions\DecryptionFailedException;
+use Crumbls\Sealcraft\Exceptions\SealcraftException;
 use Crumbls\Sealcraft\Values\DataKeyPair;
 use Crumbls\Sealcraft\Values\EncryptionContext;
 use Crumbls\Sealcraft\Values\ProviderCapabilities;
 use Crumbls\Sealcraft\Values\WrappedDek;
+use Illuminate\Contracts\Foundation\Application;
 
 /**
  * Passthrough KEK provider for unit tests. Wraps a DEK by storing it
@@ -25,6 +27,13 @@ final class NullKekProvider implements GeneratesDataKeys, SupportsNativeAad
     public const NAME = 'null';
 
     private const KEY_ID = 'null-kek';
+
+    public function __construct(?Application $app = null)
+    {
+        if (! ($app ?? app())->environment('testing')) {
+            throw new SealcraftException('NullKekProvider is available only in the testing environment.');
+        }
+    }
 
     public function name(): string
     {

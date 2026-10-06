@@ -81,7 +81,7 @@ final class KeyManager
         $connection = $this->db->connection();
 
         try {
-            return $connection->transaction(function () use ($ctx, $provider, $providerName, $cipher, $cipherName): DataKey {
+            $dataKey = $connection->transaction(function () use ($ctx, $provider, $providerName, $cipher, $cipherName): DataKey {
                 $existing = DataKey::queryActiveForContext($ctx->contextType, $ctx->contextId)
                     ->lockForUpdate()
                     ->first();
@@ -112,12 +112,12 @@ final class KeyManager
                     'wrapped_dek' => $wrapped->toStorageString(),
                 ]);
 
-                $this->cache->put($ctx, $plaintext, $dataKey);
-
                 Event::dispatch(new DekCreated($dataKey, $ctx, $providerName));
 
                 return $dataKey;
             });
+
+            return $dataKey;
         } catch (QueryException $e) {
             throw new SealcraftException(
                 "An active DEK already exists for context [{$ctx->contextType}:{$ctx->contextId}].",
@@ -197,7 +197,9 @@ final class KeyManager
             ->first();
 
         if ($existing instanceof DataKey) {
-            $this->cache->putDataKey($ctx, $existing);
+            if ($this->db->connection()->transactionLevel() === 0) {
+                $this->cache->putDataKey($ctx, $existing);
+            }
 
             return $existing;
         }
@@ -231,9 +233,13 @@ final class KeyManager
                 ->first();
 
             if (! $active instanceof DataKey) {
-                // Nothing active to shred. If a previously-shredded row
-                // exists we're already done; otherwise the context simply
-                // never had a DEK and there's nothing to destroy.
+                // Retired and previously shredded rows can still hold
+                // wrapped DEKs, including after an earlier shred.
+                DataKey::queryForContext($ctx->contextType, $ctx->contextId)
+                    ->update(['wrapped_dek' => 'shredded', 'shredded_at' => Carbon::now()]);
+
+                $this->cache->forget($ctx);
+
                 return;
             }
 
@@ -241,7 +247,12 @@ final class KeyManager
 
             $active->markRetired($now);
             $active->shredded_at = $now;
+            $active->wrapped_dek = 'shredded';
             $active->save();
+
+            DataKey::queryForContext($ctx->contextType, $ctx->contextId)
+                ->whereKeyNot($active->getKey())
+                ->update(['wrapped_dek' => 'shredded', 'shredded_at' => $now]);
 
             $this->cache->forget($ctx);
 
@@ -358,7 +369,9 @@ final class KeyManager
             throw $e;
         }
 
-        $this->cache->put($ctx, $plaintext, $dataKey);
+        if ($this->db->connection()->transactionLevel() === 0) {
+            $this->cache->put($ctx, $plaintext, $dataKey);
+        }
 
         if ($fireUnwrap) {
             Event::dispatch(new DekUnwrapped($dataKey, $ctx, $dataKey->provider_name, cacheHit: false));

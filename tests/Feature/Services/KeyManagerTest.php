@@ -12,6 +12,7 @@ use Crumbls\Sealcraft\Services\DekCache;
 use Crumbls\Sealcraft\Services\KeyManager;
 use Crumbls\Sealcraft\Services\ProviderRegistry;
 use Crumbls\Sealcraft\Values\EncryptionContext;
+use Crumbls\Sealcraft\Values\WrappedDek;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -143,4 +144,50 @@ it('honors cache hit on unwrap after initial creation', function (): void {
     expect($again)->toBe($plaintext);
     // Cache is warm — getOrCreateDek returns early without firing DekUnwrapped
     Event::assertNotDispatched(DekUnwrapped::class);
+});
+
+it('destroys active and historical wrapped DEKs while retaining a shred tombstone', function (): void {
+    $old = $this->manager->createDek($this->ctx);
+    $this->manager->retireDek($old);
+    $this->manager->createDek($this->ctx);
+
+    $this->manager->shredContext($this->ctx);
+
+    $rows = DataKey::queryForContext('tenant', 42)->get();
+    expect($rows)->toHaveCount(2);
+    expect($rows->every(fn (DataKey $row): bool => $row->isShredded() && $row->wrapped_dek === 'shredded'))->toBeTrue();
+    expect(fn () => WrappedDek::fromStorageString($rows->first()->wrapped_dek))->toThrow(SealcraftException::class);
+
+    $this->manager->shredContext($this->ctx);
+    expect(DataKey::queryForContext('tenant', 42)->where('wrapped_dek', '!=', 'shredded')->exists())->toBeFalse();
+});
+
+it('shreds retired DEKs even when no active DEK remains', function (): void {
+    $old = $this->manager->createDek($this->ctx);
+    $this->manager->retireDek($old);
+
+    $this->manager->shredContext($this->ctx);
+
+    $row = DataKey::queryForContext('tenant', 42)->firstOrFail();
+    expect($row->wrapped_dek)->toBe('shredded');
+    expect($row->isShredded())->toBeTrue();
+});
+
+it('does not cache an uncommitted DEK after its outer transaction rolls back', function (): void {
+    $rolledBackDek = null;
+
+    try {
+        DB::transaction(function () use (&$rolledBackDek): void {
+            $rolledBackDek = $this->manager->getOrCreateDek($this->ctx);
+            throw new RuntimeException('roll back');
+        });
+    } catch (RuntimeException) {
+    }
+
+    expect(DataKey::queryForContext('tenant', 42)->exists())->toBeFalse();
+    expect($this->cache->has($this->ctx))->toBeFalse();
+
+    $replacementDek = $this->manager->getOrCreateDek($this->ctx);
+    expect($replacementDek)->not->toBe($rolledBackDek);
+    expect(DataKey::queryActiveForContext('tenant', 42)->exists())->toBeTrue();
 });
